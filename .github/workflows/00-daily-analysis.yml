@@ -535,11 +535,46 @@ jobs:
             python main.py $FORCE_RUN_ARG
           fi
       
+      - name: 推送链路自检
+        id: push_check
+        if: always()
+        run: |
+          # 网络连通性探测（不发消息）
+          NET=$(curl -s -m 15 -o /dev/null -w "%{http_code}" "https://www.pushplus.plus" 2>/dev/null || echo "000")
+          # Secret 是否注入
+          if [ -n "$PUSHPLUS_TOKEN" ]; then TOK="tok1"; else TOK="tok0"; fi
+          # 从分析日志中提取推送结果
+          SSTAT="nolog"
+          if ls logs/*.log >/dev/null 2>&1; then
+            SSTAT="pushnone"
+            if grep -q "PushPlus 消息发送成功" logs/*.log 2>/dev/null; then
+              SSTAT="pushok"
+            elif grep -q "PushPlus 发送最终失败" logs/*.log 2>/dev/null; then
+              SSTAT="pushfinal"
+            elif grep -q "PushPlus 返回错误" logs/*.log 2>/dev/null; then
+              SSTAT="pusherr"
+            elif grep -q "PushPlus 请求失败" logs/*.log 2>/dev/null; then
+              SSTAT="pushfail"
+            elif grep -q "PushPlus 请求异常" logs/*.log 2>/dev/null; then
+              SSTAT="pushretry"
+            elif grep -q "PushPlus Token 未配置" logs/*.log 2>/dev/null; then
+              SSTAT="notoken"
+            fi
+          fi
+          echo "result=net${NET}-${TOK}-${SSTAT}" >> $GITHUB_OUTPUT
+          echo "========== 推送链路自检 =========="
+          echo "PushPlus 连通性: HTTP ${NET}"
+          echo "Token 注入: ${TOK} (tok1=已注入 tok0=缺失)"
+          echo "推送结果: ${SSTAT}"
+          echo "=================================="
+        env:
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+
       - name: 上传分析报告
         uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: analysis-reports-${{ github.run_number }}
+          name: analysis-reports-${{ github.run_number }}-${{ steps.push_check.outputs.result || 'nocheck' }}
           path: |
             reports/
             logs/
