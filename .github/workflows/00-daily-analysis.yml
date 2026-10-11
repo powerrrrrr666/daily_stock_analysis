@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: '30 0 * * 1-5'     # 周一到周五，UTC 00:30 = 北京时间 08:30
   
+  # ⚠️ 临时：push 触发（仅用于链路验证，验证后移除）
+  push:
+  
   # 手动触发
   workflow_dispatch:
     inputs:
@@ -34,8 +37,8 @@ jobs:
     # 兼容误将 STOCK_LIST 配到同名 Environment variables 的场景；
     # 推荐位置仍是 Settings -> Secrets and variables -> Actions -> Repository variables。
     environment: STOCK_LIST
-    # 添加超时限制，防止任务卡死
-    timeout-minutes: ${{ fromJSON(vars.ANALYSIS_TIMEOUT_MINUTES || '30') }}
+    # 添加超时限制，防止任务卡死（8只股票分析耗时更长，30→45分钟）
+    timeout-minutes: ${{ fromJSON(vars.ANALYSIS_TIMEOUT_MINUTES || '45') }}
     
     steps:
       - name: 随机延迟（避免固定时间访问）
@@ -532,7 +535,7 @@ jobs:
           
           # 构建命令行参数
           FORCE_RUN_ARG=""
-          if [ "${{ github.event.inputs.force_run }}" = "true" ]; then
+          if [ "${{ github.event.inputs.force_run }}" = "true" ] || [ "${{ github.event_name }}" = "push" ]; then
             FORCE_RUN_ARG="--force-run"
             echo "⚡ 已启用强制运行模式（跳过交易日检查）"
           fi
