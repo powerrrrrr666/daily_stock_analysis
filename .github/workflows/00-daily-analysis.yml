@@ -1,9 +1,10 @@
 name: 每日股票分析
 
 on:
-  # 定时触发 - 每天北京时间 08:30 (UTC 00:30)，盘前简报
+  # 定时触发 - 每周一至周五 北京时间 07:50 启动（UTC 23:50 周日至周四）
+  # 提前 40 分钟启动：抵消 GitHub 定时任务排队延迟（实测约 20 分钟）+ 分析耗时，确保 08:30 前送达微信
   schedule:
-    - cron: '30 0 * * 1-5'     # 周一到周五，UTC 00:30 = 北京时间 08:30
+    - cron: '50 23 * * 0-4'    # UTC 23:50 = 北京时间 07:50（次日），预计 08:20-08:30 送达
   
   # ⚠️ 临时：push 触发（仅用于链路验证，验证后移除）
   push:
@@ -353,7 +354,7 @@ jobs:
           GOTIFY_TOKEN: ${{ secrets.GOTIFY_TOKEN }}
           
           # 方式六：PushPlus ⬅️ 新增！
-          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          PUSHPLUS_TOKEN: ${{ vars.PUSHPLUS_TOKEN || secrets.PUSHPLUS_TOKEN }}
           PUSHPLUS_TOPIC: ${{ vars.PUSHPLUS_TOPIC || secrets.PUSHPLUS_TOPIC }}
           
           # 方式七：自定义 Webhook（钉钉、Bark、自建服务等）
@@ -582,7 +583,7 @@ jobs:
           echo "推送结果: ${SSTAT}"
           echo "=================================="
         env:
-          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          PUSHPLUS_TOKEN: ${{ vars.PUSHPLUS_TOKEN || secrets.PUSHPLUS_TOKEN }}
 
       - name: 上传分析报告
         uses: actions/upload-artifact@v6
