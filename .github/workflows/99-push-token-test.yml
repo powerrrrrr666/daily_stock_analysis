@@ -1,0 +1,37 @@
+name: 推送Token快速检测
+
+# 用途：约1分钟内检测 PUSHPLUS_TOKEN 是否已注入，并（若注入成功）尝试发送一条测试推送。
+# 检测结果会写入运行产物的名称中（形如 tokcheck-tok1-http200 / tokcheck-tok0-httpnone），可匿名读取。
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  token-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 检测Token并尝试推送
+        id: check
+        env:
+          PUSHPLUS_TOKEN: ${{ vars.PUSHPLUS_TOKEN || secrets.PUSHPLUS_TOKEN }}
+        run: |
+          if [ -n "$PUSHPLUS_TOKEN" ]; then TOK="tok1"; else TOK="tok0"; fi
+          HTTP="none"
+          if [ "$TOK" = "tok1" ]; then
+            HTTP=$(curl -s -m 25 -o /tmp/resp.json -w "%{http_code}" -X POST "https://www.pushplus.plus/send" \
+              -H "Content-Type: application/json" \
+              -d "{\"token\":\"$PUSHPLUS_TOKEN\",\"title\":\"✅ 推送链路检测（GitHub服务器发出）\",\"content\":\"Token 已生效，这条消息由 GitHub 服务器发出——主链路的微信推送已经打通。明早 8:30 前的自选股报告将由系统自动送达。\",\"template\":\"txt\"}" || echo "000")
+          fi
+          echo "result=${TOK}-http${HTTP}" >> $GITHUB_OUTPUT
+          echo "TOK=$TOK HTTP=$HTTP"
+          cat /tmp/resp.json 2>/dev/null || true
+
+      - name: 上传检测结果
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: tokcheck-${{ steps.check.outputs.result || 'unknown' }}
+          path: /tmp/resp.json
+          if-no-files-found: ignore
+          retention-days: 1
