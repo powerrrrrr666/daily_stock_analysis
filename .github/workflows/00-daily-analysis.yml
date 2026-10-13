@@ -573,14 +573,47 @@ jobs:
               SSTAT="notoken"
             fi
           fi
-          echo "result=net${NET}-${TOK}-${SSTAT}" >> $GITHUB_OUTPUT
-          echo "========== 推送链路自检 =========="
+          # ===== LLM 配置自检（个股分析是否具备条件）=====
+          # llmok = LLM 可用；llmkey0 = 缺 Key；llmmodel0 = 缺 LITELLM_MODEL；llmunknown = 无法判定
+          LLM="llmunknown"
+          if [ -n "$DEEPSEEK_API_KEY" ] || [ -n "$DEEPSEEK_API_KEYS" ] || [ -n "$LLM_DEEPSEEK_API_KEY" ] \
+             || [ -n "$OPENAI_API_KEY" ] || [ -n "$GEMINI_API_KEY" ] || [ -n "$AIHUBMIX_KEY" ] \
+             || [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$ANSPIRE_API_KEYS" ] || [ -n "$LITELLM_CONFIG" ]; then
+            if [ -n "$LITELLM_MODEL" ] || [ -n "$LLM_CHANNELS" ] || [ -n "$LITELLM_CONFIG" ]; then
+              LLM="llmok"
+            else
+              LLM="llmmodel0"
+            fi
+          else
+            LLM="llmkey0"
+          fi
+          # 以运行日志为准：若出现「LLM API Key 未配置」则直接判定缺 Key
+          if grep -q "LLM API Key 未配置" logs/*.log 2>/dev/null || grep -q "未配置任何可用的 AI 模型接入" logs/*.log 2>/dev/null; then
+            LLM="llmkey0"
+          fi
+          # 个股分析成功失败计数（用于快速判定报告是否为「只有大盘复盘」）
+          SOK=$(grep -c "分析结果标记为失败，不计入汇总" logs/*.log 2>/dev/null || echo 0)
+          echo "result=net${NET}-${TOK}-${SSTAT}-${LLM}-stkfail${SOK}" >> $GITHUB_OUTPUT
+          echo "========== 链路自检 =========="
           echo "PushPlus 连通性: HTTP ${NET}"
           echo "Token 注入: ${TOK} (tok1=已注入 tok0=缺失)"
           echo "推送结果: ${SSTAT}"
-          echo "=================================="
+          echo "LLM 状态: ${LLM} (llmok=可用 llmkey0=缺APIKey llmmodel0=缺模型配置)"
+          echo "个股分析失败数: ${SOK}"
+          echo "============================="
         env:
           PUSHPLUS_TOKEN: ${{ vars.PUSHPLUS_TOKEN || secrets.PUSHPLUS_TOKEN }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_KEYS: ${{ secrets.DEEPSEEK_API_KEYS }}
+          LLM_DEEPSEEK_API_KEY: ${{ secrets.LLM_DEEPSEEK_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AIHUBMIX_KEY: ${{ secrets.AIHUBMIX_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANSPIRE_API_KEYS: ${{ secrets.ANSPIRE_API_KEYS }}
+          LITELLM_CONFIG: ${{ vars.LITELLM_CONFIG || secrets.LITELLM_CONFIG }}
+          LITELLM_MODEL: ${{ vars.LITELLM_MODEL || secrets.LITELLM_MODEL }}
+          LLM_CHANNELS: ${{ vars.LLM_CHANNELS || secrets.LLM_CHANNELS }}
 
       - name: 上传分析报告
         uses: actions/upload-artifact@v6
