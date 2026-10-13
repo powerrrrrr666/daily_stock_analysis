@@ -1,7 +1,7 @@
 name: LLM配置快速校验
 
 # 临时校验工作流：仅用于验证 DEEPSEEK_API_KEY 与 LITELLM_MODEL 是否已正确注入
-# 验证通过后即删除本文件
+# 结论编码进产物名，便于匿名远程读取。验证通过后即删除本文件。
 on:
   push:
     branches: [main]
@@ -12,55 +12,47 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: 检查配置注入状态
+      - name: 检查配置注入 + 实际调用 API
+        id: chk
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           LITELLM_MODEL: ${{ vars.LITELLM_MODEL || secrets.LITELLM_MODEL }}
           LLM_CHANNELS: ${{ vars.LLM_CHANNELS || secrets.LLM_CHANNELS }}
         run: |
+          mkdir -p out
           KEY="key0"; [ -n "$DEEPSEEK_API_KEY" ] && KEY="key1"
           MODEL="model0"; [ -n "$LITELLM_MODEL" ] && MODEL="model1"
-          echo "DEEPSEEK_API_KEY 注入: ${KEY}"
-          echo "LITELLM_MODEL 注入: ${MODEL}"
-          echo "LITELLM_MODEL 值: ${LITELLM_MODEL:-<空>}"
-          echo "LLM_CHANNELS 值: ${LLM_CHANNELS:-<空>}"
-          echo "RESULT=${KEY}-${MODEL}" >> $GITHUB_ENV
+          CHAN="chan0"; [ -n "$LLM_CHANNELS" ] && CHAN="chan1"
 
-      - name: 实际调用 DeepSeek API 验证 Key 有效性
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: |
-          if [ -z "$DEEPSEEK_API_KEY" ]; then
-            echo "❌ DEEPSEEK_API_KEY 未注入，跳过 API 调用"
-            echo "APISTAT=nokey" >> $GITHUB_ENV
-            exit 0
-          fi
-          CODE=$(curl -s -m 30 -o /tmp/resp.json -w "%{http_code}" \
-            -X POST "https://api.deepseek.com/v1/chat/completions" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
-            -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"hi"}],"max_tokens":5}')
-          echo "HTTP_CODE=${CODE}"
-          echo "APISTAT=${CODE}" >> $GITHUB_ENV
-          if [ "$CODE" = "200" ]; then
-            echo "✅ DeepSeek API 调用成功，Key 有效"
-          else
-            echo "❌ DeepSeek API 调用失败，响应："
-            head -c 400 /tmp/resp.json
+          APISTAT="nokey"
+          if [ -n "$DEEPSEEK_API_KEY" ]; then
+            CODE=$(curl -s -m 30 -o out/resp.json -w "%{http_code}" \
+              -X POST "https://api.deepseek.com/v1/chat/completions" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+              -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"hi"}],"max_tokens":5}' \
+              || echo "000")
+            APISTAT="api${CODE}"
           fi
 
-      - name: 汇总结果
-        run: |
-          echo "=========================================="
-          echo "DEEPSEEK_API_KEY: $([ -n "$DEEPSEEK_API_KEY" ] && echo 已注入 || echo 缺失)"
-          echo "LITELLM_MODEL:    $([ -n "$LITELLM_MODEL" ] && echo 已注入 || echo 缺失)"
-          echo "API 调用结果:     HTTP ${APISTAT}"
-          echo "=========================================="
-          if [ "$APISTAT" = "200" ]; then
-            echo "VERDICT=PASS"
-          else
-            echo "VERDICT=FAIL"
-          fi
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          LITELLM_MODEL: ${{ vars.LITELLM_MODEL || secrets.LITELLM_MODEL }}
+          {
+            echo "DEEPSEEK_API_KEY 注入: ${KEY} (key1=已注入 key0=缺失)"
+            echo "LITELLM_MODEL 注入: ${MODEL} (model1=已注入 model0=缺失)"
+            echo "LITELLM_MODEL 值: ${LITELLM_MODEL:-<空>}"
+            echo "LLM_CHANNELS 注入: ${CHAN}"
+            echo "LLM_CHANNELS 值: ${LLM_CHANNELS:-<空>}"
+            echo "DeepSeek API 调用: ${APISTAT} (api200=成功)"
+            echo "--- API 响应 ---"
+            cat out/resp.json 2>/dev/null | head -c 500
+          } > out/result.txt
+
+          cat out/result.txt
+          echo "verdict=${KEY}-${MODEL}-${CHAN}-${APISTAT}" >> $GITHUB_OUTPUT
+
+      - name: 上传校验结论
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: llmcheck-${{ steps.chk.outputs.verdict || 'unknown' }}
+          path: out/
+          retention-days: 3
