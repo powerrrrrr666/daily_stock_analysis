@@ -555,6 +555,8 @@ jobs:
         id: push_check
         if: always()
         run: |
+          # 自检为诊断性质：任何异常都不得让本步骤失败（否则会连累产物上传）
+          set +e
           # 网络连通性探测（不发消息）
           NET=$(curl -s -m 15 -o /dev/null -w "%{http_code}" "https://www.pushplus.plus" 2>/dev/null || echo "000")
           # Secret 是否注入
@@ -595,9 +597,18 @@ jobs:
           if grep -q "LLM API Key 未配置" logs/*.log 2>/dev/null || grep -q "未配置任何可用的 AI 模型接入" logs/*.log 2>/dev/null; then
             LLM="llmkey0"
           fi
-          # 个股分析成功失败计数（用于快速判定报告是否为「只有大盘复盘」）
-          SOK=$(grep -c "分析结果标记为失败，不计入汇总" logs/*.log 2>/dev/null || echo 0)
-          echo "result=net${NET}-${TOK}-${SSTAT}-${LLM}-stkfail${SOK}" >> $GITHUB_OUTPUT
+          # 个股分析失败计数（cat 合并后再 grep -c，确保只输出单个数字，避免多行破坏 GITHUB_OUTPUT）
+          SOK="0"
+          if ls logs/*.log >/dev/null 2>&1; then
+            SOK=$(cat logs/*.log 2>/dev/null | grep -c "分析结果标记为失败，不计入汇总")
+            SOK=${SOK:-0}
+          fi
+          # 归一化：仅保留数字，防止任何意外字符污染产物名
+          SOK=$(printf '%s' "$SOK" | tr -cd '0-9')
+          SOK=${SOK:-0}
+          RESULT="net${NET}-${TOK}-${SSTAT}-${LLM}-stkfail${SOK}"
+          RESULT=$(printf '%s' "$RESULT" | tr -cd 'A-Za-z0-9._-')
+          echo "result=${RESULT}" >> $GITHUB_OUTPUT
           echo "========== 链路自检 =========="
           echo "PushPlus 连通性: HTTP ${NET}"
           echo "Token 注入: ${TOK} (tok1=已注入 tok0=缺失)"
