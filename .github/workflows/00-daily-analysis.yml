@@ -614,7 +614,22 @@ jobs:
           # 归一化：仅保留数字，防止任何意外字符污染产物名
           SOK=$(printf '%s' "$SOK" | tr -cd '0-9')
           SOK=${SOK:-0}
-          RESULT="net${NET}-${TOK}-${SSTAT}-${LLM}-stkfail${SOK}"
+          # ===== 新闻搜索渠道自检 =====
+          # srch1 = 已配置搜索渠道；srch0 = 未配置
+          SRCH="srch0"
+          if [ -n "$TAVILY_API_KEYS" ] || [ -n "$BRAVE_API_KEYS" ] || [ -n "$BOCHA_API_KEYS" ] \
+             || [ -n "$SERPAPI_API_KEYS" ] || [ -n "$MINIMAX_API_KEYS" ] || [ -n "$ANSPIRE_API_KEYS" ] \
+             || [ -n "$SEARXNG_BASE_URLS" ]; then
+            SRCH="srch1"
+          fi
+          # news1 = 本次分析实际纳入了新闻面；news0 = 未纳入
+          NEWS="news0"
+          if ls logs/*.log >/dev/null 2>&1; then
+            if ! grep -q "未配置搜索渠道" logs/*.log 2>/dev/null; then
+              NEWS="news1"
+            fi
+          fi
+          RESULT="net${NET}-${TOK}-${SSTAT}-${LLM}-stkfail${SOK}-${SRCH}-${NEWS}"
           RESULT=$(printf '%s' "$RESULT" | tr -cd 'A-Za-z0-9._-')
           echo "result=${RESULT}" >> $GITHUB_OUTPUT
           echo "========== 链路自检 =========="
@@ -623,6 +638,8 @@ jobs:
           echo "推送结果: ${SSTAT}"
           echo "LLM 状态: ${LLM} (llmok=可用 llmkey0=缺APIKey llmmodel0=缺模型配置)"
           echo "个股分析失败数: ${SOK}"
+          echo "搜索渠道: ${SRCH} (srch1=已配置 srch0=未配置)"
+          echo "新闻面: ${NEWS} (news1=已纳入 news0=未纳入)"
           echo "============================="
         env:
           PUSHPLUS_TOKEN: ${{ vars.PUSHPLUS_TOKEN || secrets.PUSHPLUS_TOKEN }}
@@ -637,6 +654,13 @@ jobs:
           LITELLM_CONFIG: ${{ vars.LITELLM_CONFIG || secrets.LITELLM_CONFIG }}
           LITELLM_MODEL: ${{ vars.LITELLM_MODEL || secrets.LITELLM_MODEL }}
           LLM_CHANNELS: ${{ vars.LLM_CHANNELS || secrets.LLM_CHANNELS }}
+          # 新闻搜索渠道（用于自检 srch0/srch1）
+          TAVILY_API_KEYS: ${{ secrets.TAVILY_API_KEYS }}
+          BRAVE_API_KEYS: ${{ secrets.BRAVE_API_KEYS }}
+          BOCHA_API_KEYS: ${{ secrets.BOCHA_API_KEYS }}
+          SERPAPI_API_KEYS: ${{ secrets.SERPAPI_API_KEYS }}
+          MINIMAX_API_KEYS: ${{ secrets.MINIMAX_API_KEYS }}
+          SEARXNG_BASE_URLS: ${{ vars.SEARXNG_BASE_URLS || secrets.SEARXNG_BASE_URLS }}
 
       - name: 上传分析报告
         uses: actions/upload-artifact@v6
