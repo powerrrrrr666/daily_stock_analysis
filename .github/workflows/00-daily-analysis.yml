@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: '25 23 * * 0-4'    # UTC 23:25 = 北京时间 07:25（次日）
   
+  # ⚠️ 临时：push 触发（仅用于简报版式改造的端到端验证，验证后移除）
+  push:
+    branches: [main]
+  
   # 手动触发
   workflow_dispatch:
     inputs:
@@ -420,6 +424,10 @@ jobs:
           # 报告类型：brief=简洁（每只票 3-5 句，适合微信推送）/ simple=仪表盘 / full=完整
           # 默认 brief：避免报告过长被 PushPlus 拆成多条消息
           REPORT_TYPE: ${{ vars.REPORT_TYPE || secrets.REPORT_TYPE || 'brief' }}
+          # 启用 Jinja2 模板渲染：使用 templates/report_brief.j2 的定制简报版式
+          # （结论先行 + 说明依据 + 明确价位，且不显示数据来源）
+          REPORT_RENDERER_ENABLED: ${{ vars.REPORT_RENDERER_ENABLED || secrets.REPORT_RENDERER_ENABLED || 'true' }}
+          REPORT_TEMPLATES_DIR: ${{ vars.REPORT_TEMPLATES_DIR || secrets.REPORT_TEMPLATES_DIR || 'templates' }}
           REPORT_LANGUAGE: ${{ vars.REPORT_LANGUAGE || secrets.REPORT_LANGUAGE || '' }}
           REPORT_SHOW_LLM_MODEL: ${{ vars.REPORT_SHOW_LLM_MODEL || secrets.REPORT_SHOW_LLM_MODEL || 'true' }}
           SINGLE_STOCK_NOTIFY: ${{ vars.SINGLE_STOCK_NOTIFY || secrets.SINGLE_STOCK_NOTIFY || 'false' }}

@@ -1,24 +1,94 @@
-# 🎯 {{ report_date }} {{ labels.brief_title }}
+{# 自选股简报模板（用户定制：结论先行 + 说明依据 + 明确价位 + 不显示数据来源） #}
+{%- set num_emoji = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'] -%}
+{%- set summary_lines = [] -%}
+{%- for e in enriched -%}
+{%- set dash0 = e.result.dashboard or {} -%}
+{%- set core0 = dash0.get('core_conclusion') or {} -%}
+{%- set one0 = core0.get('one_sentence') or e.result.analysis_summary or e.localized_trend_prediction or '暂无判断' -%}
+{%- set _ = summary_lines.append('- **' ~ e.stock_name ~ '** ' ~ e.signal_emoji ~ ' ' ~ e.signal_text ~ '：' ~ one0|truncate(46, true, '…')) -%}
+{%- endfor -%}
+# 📈 自选股简报（{{ report_date }}）
 
-> {{ results|length }} {{ labels.stock_unit_compact }} | 🟢{{ buy_count }} 🟡{{ hold_count }} 🔴{{ sell_count }}
-{% if market_status_line %}
-{{ market_status_line }}
-{% endif %}
+> {{ results|length }} 只自选股 ｜ 🟢 买入 {{ buy_count }} · 🟡 观望 {{ hold_count }} · 🔴 减仓 {{ sell_count }}
+{%- if market_status_line %}
+> {{ market_status_line }}
+{%- endif %}
 
-{% for e in enriched %}
-{% set dash = e.result.dashboard or {} %}
-{% set core = (dash.get('core_conclusion') or {}) if dash else {} %}
-{% set one = (core.get('one_sentence') or e.result.analysis_summary or '')[:60] %}
-**{{ e.stock_name }}({{ e.result.code }})** {{ e.signal_emoji }} {{ e.signal_text }} | {{ labels.score_label }} {{ e.result.sentiment_score }} | {{ one }}
-{% if e.empty_news_disclosure %}
-{{ e.empty_news_disclosure }}
-{% endif %}
-{% if e.result.data_sources and e.result.data_sources|trim %}
-*📋 {{ labels.data_sources_label }}：{{ e.result.data_sources|trim }}*
-{% endif %}
-{% endfor %}
+---
 
-*{{ report_timestamp }}*
-{% if show_llm_model and models_used %}
-*{{ labels.analysis_model_label }}: {{ models_used|join(', ') }}*
-{% endif %}
+## 先说人话：今天怎么办
+
+{{ summary_lines|join('\n') }}
+
+---
+{%- for e in enriched %}
+{%- set result = e.result %}
+{%- set dash = result.dashboard or {} %}
+{%- set core = dash.get('core_conclusion') or {} %}
+{%- set intel = dash.get('intelligence') or {} %}
+{%- set data_persp = dash.get('data_perspective') or {} %}
+{%- set battle = dash.get('battle_plan') or {} %}
+{%- set sniper = battle.get('sniper_points') or {} %}
+{%- set pos_advice = core.get('position_advice') or {} %}
+{%- set snap = result.market_snapshot or {} %}
+{%- set pp = data_persp.get('price_position') or {} %}
+{%- set va = data_persp.get('volume_analysis') or {} %}
+{%- set ts = data_persp.get('trend_status') or {} %}
+{%- set attr = dash.get('signal_attribution') or {} %}
+{%- set price = snap.get('price') or pp.get('current_price') %}
+{%- set tech = [] %}
+{%- if ts.get('ma_alignment') %}{% set _ = tech.append('均线' ~ ts.get('ma_alignment')) %}{% endif %}
+{%- if pp.get('support_level') %}{% set _ = tech.append('支撑 ' ~ pp.get('support_level')) %}{% endif %}
+{%- if pp.get('resistance_level') %}{% set _ = tech.append('压力 ' ~ pp.get('resistance_level')) %}{% endif %}
+{%- if pp.get('bias_ma5') and pp.get('bias_ma5') != 'N/A' %}{% set _ = tech.append('乖离 ' ~ pp.get('bias_ma5') ~ '%') %}{% endif %}
+{%- set bullets = [] %}
+{%- if tech %}{% set _ = bullets.append('- **技术面**：' ~ tech|join(' ｜ ')) %}{% endif %}
+{%- if va.get('volume_meaning') %}{% set _ = bullets.append('- **量能**：换手 ' ~ (va.get('turnover_rate') or 'N/A') ~ '%，' ~ va.get('volume_meaning')) %}{% endif %}
+{%- if intel.get('positive_catalysts') %}{% set _ = bullets.append('- **利好**：' ~ intel.get('positive_catalysts')[:2]|join('；')) %}{% endif %}
+{%- if intel.get('risk_alerts') %}{% set _ = bullets.append('- **风险**：' ~ intel.get('risk_alerts')[:2]|join('；')) %}{% endif %}
+{%- if intel.get('earnings_outlook') %}{% set _ = bullets.append('- **业绩**：' ~ intel.get('earnings_outlook')) %}{% endif %}
+{%- set duo = [] %}
+{%- if attr.get('strongest_bullish_signal') %}{% set _ = duo.append('看多「' ~ attr.get('strongest_bullish_signal') ~ '」') %}{% endif %}
+{%- if attr.get('strongest_bearish_signal') %}{% set _ = duo.append('看空「' ~ attr.get('strongest_bearish_signal') ~ '」') %}{% endif %}
+{%- if duo %}{% set _ = bullets.append('- **多空**：' ~ duo|join('　')) %}{% endif %}
+
+## {{ num_emoji[loop.index0] if loop.index0 < 10 else loop.index }} {{ e.stock_name }} {{ result.code }} ｜ {{ e.signal_text }}
+
+现价 **{{ price or 'N/A' }}** 元{% if snap.get('pct_chg') %}（{{ snap.get('pct_chg') }}）{% endif %} ｜ 换手率 {{ va.get('turnover_rate') or snap.get('turnover_rate') or 'N/A' }}% ｜ 评分 {{ result.sentiment_score }}
+{%- set one_sentence = core.get('one_sentence') or result.analysis_summary %}
+{%- if one_sentence %}
+
+**一句话判断**：{{ one_sentence }}
+{%- endif %}
+{%- if bullets %}
+
+{{ bullets|join('\n') }}
+{%- endif %}
+
+**怎么办**
+- 🆕 **空仓者** → {{ pos_advice.get('no_position') or e.localized_operation_advice }}
+- 💼 **持仓者** → {{ pos_advice.get('has_position') or '继续持有，跌破关键支撑再减' }}
+{%- set levels = [] %}
+{%- if sniper.get('ideal_buy') %}{% set _ = levels.append('理想买入 ' ~ clean_sniper(sniper.get('ideal_buy'))) %}{% endif %}
+{%- if sniper.get('secondary_buy') %}{% set _ = levels.append('次优 ' ~ clean_sniper(sniper.get('secondary_buy'))) %}{% endif %}
+{%- if sniper.get('stop_loss') %}{% set _ = levels.append('止损 ' ~ clean_sniper(sniper.get('stop_loss'))) %}{% endif %}
+{%- if sniper.get('take_profit') %}{% set _ = levels.append('目标 ' ~ clean_sniper(sniper.get('take_profit'))) %}{% endif %}
+{%- if levels %}
+- 🎯 **关键价位**：{{ levels|join(' ｜ ') }}
+{%- endif %}
+{%- if not dash and result.buy_reason %}
+
+**操作理由**：{{ result.buy_reason }}
+{%- endif %}
+{%- if not dash and result.risk_warning %}
+
+**风险提示**：{{ result.risk_warning }}
+{%- endif %}
+
+---
+{%- endfor %}
+
+*生成时间：{{ report_timestamp }}*
+{%- if show_llm_model and models_used %}
+*分析模型：{{ models_used|join(', ') }}*
+{%- endif %}
