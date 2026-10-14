@@ -8,10 +8,6 @@ on:
   schedule:
     - cron: '25 23 * * 0-4'    # UTC 23:25 = 北京时间 07:25（次日）
   
-  # ⚠️ 临时：push 触发（仅用于简报版式改造的端到端验证，验证后移除）
-  push:
-    branches: [main]
-  
   # 手动触发
   workflow_dispatch:
     inputs:
@@ -564,13 +560,12 @@ jobs:
           fi
 
           # 执行分析
-          # ⚠️ 临时：--no-notify 仅用于本次版式验证（不推送，避免打扰），验证后必须移除
           if [ "$MODE" = "market-only" ]; then
-            python main.py --market-review --no-notify $FORCE_RUN_ARG
+            python main.py --market-review $FORCE_RUN_ARG
           elif [ "$MODE" = "stocks-only" ]; then
-            python main.py --no-market-review --no-notify $FORCE_RUN_ARG
+            python main.py --no-market-review $FORCE_RUN_ARG
           else
-            python main.py --no-notify $FORCE_RUN_ARG
+            python main.py $FORCE_RUN_ARG
           fi
       
       - name: 推送链路自检
