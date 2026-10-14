@@ -1,0 +1,56 @@
+name: 搜索源连通性测试
+
+# 临时测试工作流：验证 SearXNG 公共实例在 GitHub Actions 环境是否可用
+# 结论编码进产物名，测试后删除本文件
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: 探测 searx.space 与公共实例
+        id: probe
+        run: |
+          mkdir -p out
+          SPACE="space0"; POOL="pool0"; QUERY="query0"
+
+          CODE=$(curl -s -m 25 -o out/instances.json -w "%{http_code}" "https://searx.space/data/instances.json" || echo 000)
+          echo "searx.space HTTP=${CODE}" | tee out/result.txt
+          [ "$CODE" = "200" ] && SPACE="space1"
+
+          if [ "$SPACE" = "space1" ]; then
+            python3 -c "import json,sys;d=json.load(open('out/instances.json'));i=d.get('instances',{});ok=[u for u,v in i.items() if v.get('network_type')=='normal' and v.get('http',{}).get('status_code')==200];print(chr(10).join(ok[:40]))" > out/pool.txt 2>/dev/null
+            N=$(grep -c . out/pool.txt 2>/dev/null || echo 0)
+            echo "可用实例数: ${N}" | tee -a out/result.txt
+            [ "${N:-0}" -gt 0 ] && POOL="pool1"
+          fi
+
+          if [ "$POOL" = "pool1" ]; then
+            i=0
+            while read -r U && [ $i -lt 8 ]; do
+              i=$((i+1))
+              R=$(curl -s -m 12 "$U/search?q=%E9%AB%98%E5%BE%B7%E7%BA%A2%E5%A4%96+%E6%9C%80%E6%96%B0%E6%B6%88%E6%81%AF&format=json" -H "User-Agent: Mozilla/5.0" 2>/dev/null)
+              RC=$(printf '%s' "$R" | grep -c '"title"' || true)
+              echo "[$i] $U -> 结果条数≈${RC}" | tee -a out/result.txt
+              if [ "${RC:-0}" -gt 0 ]; then
+                QUERY="query1"
+                echo "OK 查到结果: $U" | tee -a out/result.txt
+                break
+              fi
+            done < out/pool.txt
+          fi
+
+          echo "verdict=${SPACE}-${POOL}-${QUERY}" >> $GITHUB_OUTPUT
+          echo "=== 最终结论: ${SPACE}-${POOL}-${QUERY} ==="
+
+      - name: 上传测试结论
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: searchprobe-${{ steps.probe.outputs.verdict || 'unknown' }}
+          path: out/
+          retention-days: 3
