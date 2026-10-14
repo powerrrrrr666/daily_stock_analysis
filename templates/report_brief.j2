@@ -1,11 +1,15 @@
 {# 自选股简报模板（用户定制：结论先行 + 说明依据 + 明确价位 + 不显示数据来源） #}
+{%- macro clip(s, n) -%}
+{{- s|string|replace('风险点1：','')|replace('风险点2：','')|replace('风险点3：','')|replace('风险点4：','')|replace('利好1：','')|replace('利好2：','')|replace('利好3：','')|replace('利空1：','')|replace('利空2：','')|replace('利好：','')|replace('风险：','')|replace('技术风险：','')|replace('估值风险：','')|replace('量能风险：','')|replace('技术面：','')|replace('估值面：','')|trim|truncate(n, true, '…') -}}
+{%- endmacro -%}
 {%- set num_emoji = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'] -%}
+{%- set missing_kw = ['缺失', '无法判断', '为空', 'N/A', '暂无', '不可得', '未披露'] -%}
 {%- set summary_lines = [] -%}
 {%- for e in enriched -%}
 {%- set dash0 = e.result.dashboard or {} -%}
 {%- set core0 = dash0.get('core_conclusion') or {} -%}
 {%- set one0 = core0.get('one_sentence') or e.result.analysis_summary or e.localized_trend_prediction or '暂无判断' -%}
-{%- set _ = summary_lines.append('- **' ~ e.stock_name ~ '** ' ~ e.signal_emoji ~ ' ' ~ e.signal_text ~ '：' ~ one0|truncate(46, true, '…')) -%}
+{%- set _ = summary_lines.append('- **' ~ e.stock_name ~ '** ' ~ e.signal_emoji ~ ' ' ~ e.signal_text ~ '：' ~ one0|truncate(42, true, '…')) -%}
 {%- endfor -%}
 # 📈 自选股简报（{{ report_date }}）
 
@@ -37,19 +41,25 @@
 {%- set attr = dash.get('signal_attribution') or {} %}
 {%- set price = snap.get('price') or pp.get('current_price') %}
 {%- set tech = [] %}
-{%- if ts.get('ma_alignment') %}{% set _ = tech.append('均线' ~ ts.get('ma_alignment')) %}{% endif %}
+{%- if ts.get('ma_alignment') %}{% set _ = tech.append(clip(ts.get('ma_alignment'), 30)) %}{% endif %}
 {%- if pp.get('support_level') %}{% set _ = tech.append('支撑 ' ~ pp.get('support_level')) %}{% endif %}
 {%- if pp.get('resistance_level') %}{% set _ = tech.append('压力 ' ~ pp.get('resistance_level')) %}{% endif %}
-{%- if pp.get('bias_ma5') and pp.get('bias_ma5') != 'N/A' %}{% set _ = tech.append('乖离 ' ~ pp.get('bias_ma5') ~ '%') %}{% endif %}
 {%- set bullets = [] %}
 {%- if tech %}{% set _ = bullets.append('- **技术面**：' ~ tech|join(' ｜ ')) %}{% endif %}
-{%- if va.get('volume_meaning') %}{% set _ = bullets.append('- **量能**：换手 ' ~ (va.get('turnover_rate') or 'N/A') ~ '%，' ~ va.get('volume_meaning')) %}{% endif %}
-{%- if intel.get('positive_catalysts') %}{% set _ = bullets.append('- **利好**：' ~ intel.get('positive_catalysts')[:2]|join('；')) %}{% endif %}
-{%- if intel.get('risk_alerts') %}{% set _ = bullets.append('- **风险**：' ~ intel.get('risk_alerts')[:2]|join('；')) %}{% endif %}
-{%- if intel.get('earnings_outlook') %}{% set _ = bullets.append('- **业绩**：' ~ intel.get('earnings_outlook')) %}{% endif %}
+{%- if va.get('volume_meaning') %}{% set _ = bullets.append('- **量能**：换手 ' ~ (va.get('turnover_rate') or 'N/A') ~ '%，' ~ clip(va.get('volume_meaning'), 32)) %}{% elif va.get('turnover_rate') %}{% set _ = bullets.append('- **量能**：换手率 ' ~ va.get('turnover_rate') ~ '%') %}{% endif %}
+{%- set pos_items = [] %}
+{%- for c in (intel.get('positive_catalysts') or [])[:2] %}{% set _ = pos_items.append(clip(c, 30)) %}{% endfor %}
+{%- if pos_items %}{% set _ = bullets.append('- **利好**：' ~ pos_items|join('；')) %}{% endif %}
+{%- set risk_items = [] %}
+{%- for a in (intel.get('risk_alerts') or [])[:2] %}{% set _ = risk_items.append(clip(a, 30)) %}{% endfor %}
+{%- if risk_items %}{% set _ = bullets.append('- **风险**：' ~ risk_items|join('；')) %}{% endif %}
+{%- set earn = intel.get('earnings_outlook') %}
+{%- set ns = namespace(earn_missing=false) %}
+{%- if earn %}{% for kw in missing_kw %}{% if kw in earn %}{% set ns.earn_missing = true %}{% endif %}{% endfor %}{% endif %}
+{%- if earn and not ns.earn_missing %}{% set _ = bullets.append('- **业绩**：' ~ clip(earn, 34)) %}{% endif %}
 {%- set duo = [] %}
-{%- if attr.get('strongest_bullish_signal') %}{% set _ = duo.append('看多「' ~ attr.get('strongest_bullish_signal') ~ '」') %}{% endif %}
-{%- if attr.get('strongest_bearish_signal') %}{% set _ = duo.append('看空「' ~ attr.get('strongest_bearish_signal') ~ '」') %}{% endif %}
+{%- if attr.get('strongest_bullish_signal') %}{% set _ = duo.append('看多「' ~ clip(attr.get('strongest_bullish_signal'), 22) ~ '」') %}{% endif %}
+{%- if attr.get('strongest_bearish_signal') %}{% set _ = duo.append('看空「' ~ clip(attr.get('strongest_bearish_signal'), 22) ~ '」') %}{% endif %}
 {%- if duo %}{% set _ = bullets.append('- **多空**：' ~ duo|join('　')) %}{% endif %}
 
 ## {{ num_emoji[loop.index0] if loop.index0 < 10 else loop.index }} {{ e.stock_name }} {{ result.code }} ｜ {{ e.signal_text }}
@@ -58,7 +68,7 @@
 {%- set one_sentence = core.get('one_sentence') or result.analysis_summary %}
 {%- if one_sentence %}
 
-**一句话判断**：{{ one_sentence }}
+**一句话判断**：{{ clip(one_sentence, 44) }}
 {%- endif %}
 {%- if bullets %}
 
@@ -66,23 +76,22 @@
 {%- endif %}
 
 **怎么办**
-- 🆕 **空仓者** → {{ pos_advice.get('no_position') or e.localized_operation_advice }}
-- 💼 **持仓者** → {{ pos_advice.get('has_position') or '继续持有，跌破关键支撑再减' }}
+- 🆕 **空仓者** → {{ clip(pos_advice.get('no_position') or e.localized_operation_advice, 72) }}
+- 💼 **持仓者** → {{ clip(pos_advice.get('has_position') or '继续持有，跌破关键支撑再减', 72) }}
 {%- set levels = [] %}
-{%- if sniper.get('ideal_buy') %}{% set _ = levels.append('理想买入 ' ~ clean_sniper(sniper.get('ideal_buy'))) %}{% endif %}
-{%- if sniper.get('secondary_buy') %}{% set _ = levels.append('次优 ' ~ clean_sniper(sniper.get('secondary_buy'))) %}{% endif %}
-{%- if sniper.get('stop_loss') %}{% set _ = levels.append('止损 ' ~ clean_sniper(sniper.get('stop_loss'))) %}{% endif %}
-{%- if sniper.get('take_profit') %}{% set _ = levels.append('目标 ' ~ clean_sniper(sniper.get('take_profit'))) %}{% endif %}
+{%- if sniper.get('ideal_buy') %}{% set _ = levels.append('理想买入 ' ~ clip(clean_sniper(sniper.get('ideal_buy')), 22)) %}{% endif %}
+{%- if sniper.get('stop_loss') %}{% set _ = levels.append('止损 ' ~ clip(clean_sniper(sniper.get('stop_loss')), 22)) %}{% endif %}
+{%- if sniper.get('take_profit') %}{% set _ = levels.append('目标 ' ~ clip(clean_sniper(sniper.get('take_profit')), 22)) %}{% endif %}
 {%- if levels %}
 - 🎯 **关键价位**：{{ levels|join(' ｜ ') }}
 {%- endif %}
 {%- if not dash and result.buy_reason %}
 
-**操作理由**：{{ result.buy_reason }}
+**操作理由**：{{ clip(result.buy_reason, 60) }}
 {%- endif %}
 {%- if not dash and result.risk_warning %}
 
-**风险提示**：{{ result.risk_warning }}
+**风险提示**：{{ clip(result.risk_warning, 60) }}
 {%- endif %}
 
 ---

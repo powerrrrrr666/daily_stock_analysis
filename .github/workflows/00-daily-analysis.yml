@@ -366,6 +366,9 @@ jobs:
           # 方式六：PushPlus ⬅️ 新增！
           PUSHPLUS_TOKEN: ${{ vars.PUSHPLUS_TOKEN || secrets.PUSHPLUS_TOKEN }}
           PUSHPLUS_TOPIC: ${{ vars.PUSHPLUS_TOPIC || secrets.PUSHPLUS_TOPIC }}
+          # 单条推送最大字节数。默认 20000 偏保守——实测（2026-10-14）单条 24053 字节
+          # 仍返回 code=200 发送成功。设为 26000 可避免「个股+大盘复盘」合并推送被拆成多条。
+          PUSHPLUS_MAX_BYTES: ${{ vars.PUSHPLUS_MAX_BYTES || secrets.PUSHPLUS_MAX_BYTES || '26000' }}
           
           # 方式七：自定义 Webhook（钉钉、Bark、自建服务等）
           CUSTOM_WEBHOOK_URLS: ${{ secrets.CUSTOM_WEBHOOK_URLS }}
@@ -631,10 +634,14 @@ jobs:
             SRCH="srch1"
           fi
           # news1 = 本次分析实际纳入了新闻面；news0 = 未纳入
+          # 注意：未配置搜索渠道时必然是 news0（渲染器启用后该提示不再写入日志，故需按 SRCH 兜底判定）
           NEWS="news0"
-          if ls logs/*.log >/dev/null 2>&1; then
-            if ! grep -q "未配置搜索渠道" logs/*.log 2>/dev/null; then
-              NEWS="news1"
+          if [ "$SRCH" = "srch1" ]; then
+            NEWS="news1"
+            if ls logs/*.log >/dev/null 2>&1; then
+              if grep -q "未配置搜索渠道" logs/*.log 2>/dev/null; then
+                NEWS="news0"
+              fi
             fi
           fi
           RESULT="net${NET}-${TOK}-${SSTAT}-${LLM}-stkfail${SOK}-${SRCH}-${NEWS}"

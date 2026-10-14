@@ -1140,6 +1140,10 @@ class Config:
     # PushPlus 推送配置
     pushplus_token: Optional[str] = None  # PushPlus Token
     pushplus_topic: Optional[str] = None  # PushPlus 群组编码（一对多推送）
+    # 单条消息最大字节数。默认 20000 偏保守：实测（2026-10-14）24053 字节
+    # 单条仍返回 code=200 发送成功。内容超过该值会被自动分批发送成多条消息，
+    # 不希望被拆分时可通过环境变量 PUSHPLUS_MAX_BYTES 调大。
+    pushplus_max_bytes: int = 20000
 
     # Server酱3 推送配置
     serverchan3_sendkey: Optional[str] = None  # Server酱3 SendKey
@@ -2050,6 +2054,12 @@ class Config:
             gotify_token=os.getenv('GOTIFY_TOKEN'),
             pushplus_token=os.getenv('PUSHPLUS_TOKEN'),
             pushplus_topic=os.getenv('PUSHPLUS_TOPIC'),
+            pushplus_max_bytes=parse_env_int(
+                os.getenv('PUSHPLUS_MAX_BYTES'),
+                20000,
+                field_name='PUSHPLUS_MAX_BYTES',
+                minimum=1000,
+            ),
             serverchan3_sendkey=os.getenv('SERVERCHAN3_SENDKEY'),
             custom_webhook_urls=[u.strip() for u in os.getenv('CUSTOM_WEBHOOK_URLS', '').split(',') if u.strip()],
             custom_webhook_bearer_token=os.getenv('CUSTOM_WEBHOOK_BEARER_TOKEN'),
