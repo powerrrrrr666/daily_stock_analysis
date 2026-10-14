@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: '25 23 * * 0-4'    # UTC 23:25 = 北京时间 07:25（次日）
   
+  # ⚠️ 临时：push 触发（仅用于简洁化改造的端到端验证，验证后移除）
+  push:
+    branches: [main]
+  
   # 手动触发
   workflow_dispatch:
     inputs:
@@ -80,7 +84,10 @@ jobs:
           LITELLM_CONFIG_YAML: ${{ vars.LITELLM_CONFIG_YAML || secrets.LITELLM_CONFIG_YAML }}
           LITELLM_API_KEY: ${{ secrets.LITELLM_API_KEY }}
           LITELLM_MODEL: ${{ vars.LITELLM_MODEL || secrets.LITELLM_MODEL }}
-          LITELLM_FALLBACK_MODELS: ${{ vars.LITELLM_FALLBACK_MODELS || secrets.LITELLM_FALLBACK_MODELS }}
+          # 主模型失败时的跨模型兜底：deepseek-v4-pro 为推理模型，长提示词下
+          # 思考过程会挤占输出预算，偶发「JSON 被截断」导致个别个股分析失败。
+          # 兜底用 flash（推理 token 消耗更少、JSON 更稳），避免个股整只丢失。
+          LITELLM_FALLBACK_MODELS: ${{ vars.LITELLM_FALLBACK_MODELS || secrets.LITELLM_FALLBACK_MODELS || 'deepseek/deepseek-v4-flash' }}
           AGENT_LITELLM_MODEL: ${{ vars.AGENT_LITELLM_MODEL || secrets.AGENT_LITELLM_MODEL }}
           VISION_MODEL: ${{ vars.VISION_MODEL || secrets.VISION_MODEL }}
           OPENAI_VISION_MODEL: ${{ vars.OPENAI_VISION_MODEL || secrets.OPENAI_VISION_MODEL }}
@@ -408,13 +415,18 @@ jobs:
           MARKET_REVIEW_COLOR_SCHEME: ${{ vars.MARKET_REVIEW_COLOR_SCHEME || secrets.MARKET_REVIEW_COLOR_SCHEME || 'green_up' }}
           
           # ==========================================
-          # 运行配置 ⬅️ 新增！
+          # 运行配置
           # ==========================================
-          REPORT_TYPE: ${{ vars.REPORT_TYPE || secrets.REPORT_TYPE || 'simple' }}
+          # 报告类型：brief=简洁（每只票 3-5 句，适合微信推送）/ simple=仪表盘 / full=完整
+          # 默认 brief：避免报告过长被 PushPlus 拆成多条消息
+          REPORT_TYPE: ${{ vars.REPORT_TYPE || secrets.REPORT_TYPE || 'brief' }}
           REPORT_LANGUAGE: ${{ vars.REPORT_LANGUAGE || secrets.REPORT_LANGUAGE || '' }}
           REPORT_SHOW_LLM_MODEL: ${{ vars.REPORT_SHOW_LLM_MODEL || secrets.REPORT_SHOW_LLM_MODEL || 'true' }}
           SINGLE_STOCK_NOTIFY: ${{ vars.SINGLE_STOCK_NOTIFY || secrets.SINGLE_STOCK_NOTIFY || 'false' }}
           MARKET_REVIEW_ENABLED: ${{ vars.MARKET_REVIEW_ENABLED || secrets.MARKET_REVIEW_ENABLED || 'true' }}
+          # 合并推送（Issue #190）：个股+大盘复盘合并为「一条」微信消息发送，避免分成两份
+          # 注意：保留大盘复盘以确保个股分析能获得大盘背景信息（关闭会降低分析质量）
+          MERGE_EMAIL_NOTIFICATION: ${{ vars.MERGE_EMAIL_NOTIFICATION || secrets.MERGE_EMAIL_NOTIFICATION || 'true' }}
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '0' }}
           TRADING_DAY_CHECK_ENABLED: ${{ vars.TRADING_DAY_CHECK_ENABLED || secrets.TRADING_DAY_CHECK_ENABLED || 'true' }}
           
@@ -595,12 +607,10 @@ jobs:
           if grep -q "LLM API Key 未配置" logs/*.log 2>/dev/null || grep -q "未配置任何可用的 AI 模型接入" logs/*.log 2>/dev/null; then
             LLM="llmkey0"
           fi
-          # 个股分析失败计数（cat 合并后再 grep -c，确保只输出单个数字，避免多行破坏 GITHUB_OUTPUT）
-          SOK="0"
-          if ls logs/*.log >/dev/null 2>&1; then
-            SOK=$(cat logs/*.log 2>/dev/null | grep -c "分析结果标记为失败，不计入汇总")
-            SOK=${SOK:-0}
-          fi
+          # 个股分析失败计数：直接取程序自报的汇总行「成功: N, 失败: M」中的 M，
+          # 比按行统计更权威，且不会因 debug 日志重复记录而翻倍。
+          SOK=$(grep -hoE "成功: [0-9]+, 失败: [0-9]+" logs/*.log 2>/dev/null | tail -1 | grep -oE "[0-9]+$")
+          SOK=${SOK:-0}
           # 归一化：仅保留数字，防止任何意外字符污染产物名
           SOK=$(printf '%s' "$SOK" | tr -cd '0-9')
           SOK=${SOK:-0}
