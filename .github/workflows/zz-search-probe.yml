@@ -1,7 +1,7 @@
 name: 搜索源连通性测试
 
-# 临时测试工作流：验证 SearXNG 公共实例在 GitHub Actions 环境是否可用
-# 结论编码进产物名，测试后删除本文件
+# 临时测试工作流：按代码相同逻辑（成功率排序 + format=json）验证 SearXNG 公共实例
+# 测试后删除本文件与 .github/scripts/probe_searxng_rank.py
 on:
   push:
     branches: [main]
@@ -10,47 +10,49 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
-      - name: 探测 searx.space 与公共实例
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 按代码逻辑测试公共实例
         id: probe
         run: |
           mkdir -p out
-          SPACE="space0"; POOL="pool0"; QUERY="query0"
+          : > out/result.txt
 
           CODE=$(curl -s -m 25 -o out/instances.json -w "%{http_code}" "https://searx.space/data/instances.json" || echo 000)
-          echo "searx.space HTTP=${CODE}" | tee out/result.txt
-          [ "$CODE" = "200" ] && SPACE="space1"
+          echo "searx.space HTTP=${CODE}" | tee -a out/result.txt
 
-          if [ "$SPACE" = "space1" ]; then
-            python3 -c "import json,sys;d=json.load(open('out/instances.json'));i=d.get('instances',{});ok=[u for u,v in i.items() if v.get('network_type')=='normal' and v.get('http',{}).get('status_code')==200];print(chr(10).join(ok[:40]))" > out/pool.txt 2>/dev/null
-            N=$(grep -c . out/pool.txt 2>/dev/null || echo 0)
-            echo "可用实例数: ${N}" | tee -a out/result.txt
-            [ "${N:-0}" -gt 0 ] && POOL="pool1"
-          fi
+          python3 .github/scripts/probe_searxng_rank.py 2>&1 | tee -a out/result.txt
 
-          if [ "$POOL" = "pool1" ]; then
-            i=0
-            while read -r U && [ $i -lt 8 ]; do
-              i=$((i+1))
-              R=$(curl -s -m 12 "$U/search?q=%E9%AB%98%E5%BE%B7%E7%BA%A2%E5%A4%96+%E6%9C%80%E6%96%B0%E6%B6%88%E6%81%AF&format=json" -H "User-Agent: Mozilla/5.0" 2>/dev/null)
-              RC=$(printf '%s' "$R" | grep -c '"title"' || true)
-              echo "[$i] $U -> 结果条数≈${RC}" | tee -a out/result.txt
-              if [ "${RC:-0}" -gt 0 ]; then
-                QUERY="query1"
-                echo "OK 查到结果: $U" | tee -a out/result.txt
-                break
-              fi
-            done < out/pool.txt
-          fi
+          echo "候选实例（按成功率降序）:" | tee -a out/result.txt
+          cat out/ranked.txt | tee -a out/result.txt
 
-          echo "verdict=${SPACE}-${POOL}-${QUERY}" >> $GITHUB_OUTPUT
-          echo "=== 最终结论: ${SPACE}-${POOL}-${QUERY} ==="
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          OK=0; TRY=0
+          while read -r U && [ $TRY -lt 12 ]; do
+            [ -z "$U" ] && continue
+            TRY=$((TRY+1))
+            R=$(curl -s -m 12 -G "$U/search" \
+                 --data-urlencode "q=高德红外 最新消息" \
+                 --data-urlencode "format=json" \
+                 --data-urlencode "time_range=week" \
+                 --data-urlencode "pageno=1" \
+                 -H "User-Agent: $UA" 2>/dev/null)
+            N=$(printf '%s' "$R" | grep -c '"title"' || true)
+            echo "[$TRY] $U -> 结果条数=${N}" | tee -a out/result.txt
+            if [ "${N:-0}" -gt 0 ]; then OK=$((OK+1)); fi
+          done < out/pool.txt
+
+          echo "成功实例数: ${OK} / ${TRY}" | tee -a out/result.txt
+          echo "verdict=try${TRY}-ok${OK}" >> $GITHUB_OUTPUT
+          echo "=== 结论: 尝试 ${TRY} 个，成功 ${OK} 个 ==="
 
       - name: 上传测试结论
         uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: searchprobe-${{ steps.probe.outputs.verdict || 'unknown' }}
+          name: searchprobe2-${{ steps.probe.outputs.verdict || 'unknown' }}
           path: out/
           retention-days: 3
