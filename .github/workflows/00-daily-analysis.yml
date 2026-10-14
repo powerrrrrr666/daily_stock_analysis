@@ -564,12 +564,13 @@ jobs:
           fi
 
           # 执行分析
+          # ⚠️ 临时：--no-notify 仅用于本次版式验证（不推送，避免打扰），验证后必须移除
           if [ "$MODE" = "market-only" ]; then
-            python main.py --market-review $FORCE_RUN_ARG
+            python main.py --market-review --no-notify $FORCE_RUN_ARG
           elif [ "$MODE" = "stocks-only" ]; then
-            python main.py --no-market-review $FORCE_RUN_ARG
+            python main.py --no-market-review --no-notify $FORCE_RUN_ARG
           else
-            python main.py $FORCE_RUN_ARG
+            python main.py --no-notify $FORCE_RUN_ARG
           fi
       
       - name: 推送链路自检

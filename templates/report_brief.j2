@@ -1,6 +1,6 @@
 {# 自选股简报模板（用户定制：结论先行 + 说明依据 + 明确价位 + 不显示数据来源） #}
 {%- macro clip(s, n) -%}
-{{- s|string|replace('风险点1：','')|replace('风险点2：','')|replace('风险点3：','')|replace('风险点4：','')|replace('利好1：','')|replace('利好2：','')|replace('利好3：','')|replace('利空1：','')|replace('利空2：','')|replace('利好：','')|replace('风险：','')|replace('技术风险：','')|replace('估值风险：','')|replace('量能风险：','')|replace('技术面：','')|replace('估值面：','')|trim|truncate(n, true, '…') -}}
+{{- s|string|replace('风险点1：','')|replace('风险点2：','')|replace('风险点3：','')|replace('风险点4：','')|replace('利好1：','')|replace('利好2：','')|replace('利好3：','')|replace('利空1：','')|replace('利空2：','')|replace('利好：','')|replace('风险：','')|replace('技术风险：','')|replace('估值风险：','')|replace('量能风险：','')|replace('技术面：','')|replace('估值面：','')|trim|truncate(n, true, '…')|replace('，…','…')|replace('、…','…')|replace('：…','…')|replace('但…','…')|replace('且…','…')|replace('（…','…')|replace('；…','…') -}}
 {%- endmacro -%}
 {%- set num_emoji = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'] -%}
 {%- set missing_kw = ['缺失', '无法判断', '为空', 'N/A', '暂无', '不可得', '未披露'] -%}
