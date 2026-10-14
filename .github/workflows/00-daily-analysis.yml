@@ -314,7 +314,10 @@ jobs:
           MINIMAX_API_KEYS: ${{ secrets.MINIMAX_API_KEYS }}
           BRAVE_API_KEYS: ${{ secrets.BRAVE_API_KEYS }}
           SEARXNG_BASE_URLS: ${{ vars.SEARXNG_BASE_URLS || secrets.SEARXNG_BASE_URLS }}
-          SEARXNG_PUBLIC_INSTANCES_ENABLED: ${{ vars.SEARXNG_PUBLIC_INSTANCES_ENABLED || secrets.SEARXNG_PUBLIC_INSTANCES_ENABLED }}
+          # 启用 SearXNG 公共实例（免费、无需注册）：自动从 searx.space 按成功率挑选实例并轮换
+          # 实测：约 36% 公共实例可返回 JSON 结果，代码每次搜索最多试 3 个实例 → 单次搜索成功率约 74%
+          # 如需更稳定，可另行配置 TAVILY_API_KEYS / BRAVE_API_KEYS / BOCHA_API_KEYS 等付费或免费额度渠道
+          SEARXNG_PUBLIC_INSTANCES_ENABLED: ${{ vars.SEARXNG_PUBLIC_INSTANCES_ENABLED || secrets.SEARXNG_PUBLIC_INSTANCES_ENABLED || 'true' }}
           SEARXNG_TIMEOUT_SECONDS: ${{ vars.SEARXNG_TIMEOUT_SECONDS || secrets.SEARXNG_TIMEOUT_SECONDS }}
           
           # ==========================================
@@ -520,7 +523,7 @@ jobs:
               echo "  SearXNG Public Instances: ❌ 已禁用"
               ;;
             "")
-              echo "  SearXNG Public Instances: ⚪ 默认关闭（公共实例普遍限流，如需启用请显式设为 true）"
+              echo "  SearXNG Public Instances: ⚪ 未设置（workflow 默认已开启；此处空值表示取默认 true）"
               ;;
             *)
               echo "  SearXNG Public Instances: ✅ 已启用"
