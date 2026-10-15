@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: '25 23 * * 0-4'    # UTC 23:25 = 北京时间 07:25（次日）
   
+  # ⚠️ 临时：push 触发（用于定时任务漏触发时的补救运行，补跑完成后移除）
+  push:
+    branches: [main]
+  
   # 手动触发
   workflow_dispatch:
     inputs:
