@@ -1,0 +1,16 @@
+name: ZZ 触发验证
+
+# 临时：验证 GitHub Actions 触发是否恢复（验证后删除）
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - run: |
+          echo "Actions 触发已恢复"
+          date -u '+%Y-%m-%dT%H:%M:%SZ'
