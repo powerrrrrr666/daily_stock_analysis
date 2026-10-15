@@ -1,0 +1,17 @@
+name: ZZ Actions健康检查
+
+# 临时诊断：验证 GitHub Actions 是否仍能为本仓库触发运行
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: 输出时间戳
+        run: |
+          echo "Actions 触发正常"
+          date -u '+%Y-%m-%dT%H:%M:%SZ'
