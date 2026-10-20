@@ -436,6 +436,14 @@ jobs:
           MERGE_EMAIL_NOTIFICATION: ${{ vars.MERGE_EMAIL_NOTIFICATION || secrets.MERGE_EMAIL_NOTIFICATION || 'true' }}
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '0' }}
           TRADING_DAY_CHECK_ENABLED: ${{ vars.TRADING_DAY_CHECK_ENABLED || secrets.TRADING_DAY_CHECK_ENABLED || 'true' }}
+          # ==========================================
+          # 每日「股票推荐」栏目（全市场选股）
+          # ==========================================
+          # 开启后报告末尾会附「🎯 今日推荐」：从全市场筛 3-5 只当下符合买入条件的票。
+          # 该栏目生成失败不影响主报告（个股+大盘）推送。
+          DAILY_PICKS_ENABLED: ${{ vars.DAILY_PICKS_ENABLED || secrets.DAILY_PICKS_ENABLED || 'true' }}
+          DAILY_PICKS_STRATEGY: ${{ vars.DAILY_PICKS_STRATEGY || secrets.DAILY_PICKS_STRATEGY || 'bull_trend' }}
+          DAILY_PICKS_COUNT: ${{ vars.DAILY_PICKS_COUNT || secrets.DAILY_PICKS_COUNT || '5' }}
           
           # ==========================================
           # 系统配置

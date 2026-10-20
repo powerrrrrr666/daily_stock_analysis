@@ -1,0 +1,55 @@
+{# 每日「股票推荐」栏目（全市场选股结果） #}
+{%- set p = picks_payload or {} -%}
+{%- set picks = p.get('picks') or [] -%}
+{%- set num_emoji = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'] -%}
+{%- set lines = [] -%}
+{%- for k in picks -%}
+{%- set bits = [] -%}
+{%- if k.price %}{% set _ = bits.append('现价 **' ~ k.price ~ '** 元') %}{% endif -%}
+{%- if k.change_pct is not none %}{% set _ = bits.append('（' ~ ('%+.2f'|format(k.change_pct)) ~ '%）') %}{% endif -%}
+{%- if k.turnover_rate %}{% set _ = bits.append(' ｜ 换手 ' ~ k.turnover_rate ~ '%') %}{% endif -%}
+{%- if k.industry %}{% set _ = bits.append(' ｜ ' ~ k.industry) %}{% endif -%}
+{%- set _ = lines.append('**' ~ (num_emoji[loop.index0] if loop.index0 < 10 else loop.index) ~ ' ' ~ k.name ~ '（' ~ k.code ~ '）** ' ~ (bits|join(''))) -%}
+{%- endfor -%}
+## 🎯 今日推荐（全市场选股）
+
+> 策略：**{{ p.get('strategy_display') or p.get('strategy') }}** ｜ 全市场快照 {{ p.get('snapshot_count') or 0 }} 只 → 硬性条件筛后 {{ p.get('after_filter_count') or 0 }} 只 → 入选 **{{ picks|length }}** 只
+{%- if p.get('market_view') %}
+
+**选股视角**：{{ p.get('market_view') }}
+{%- endif %}
+{%- if picks %}
+
+{{ lines|join('\n') }}
+{%- endif %}
+
+{%- if not picks %}
+
+**今天没有符合「{{ p.get('strategy_display') or p.get('strategy') }}」条件的标的。**
+
+这本身是个信号：当前市场里连技术形态最好的票都过不了筛选，说明**整体不具备买入环境**，空仓等待比勉强出手更划算。
+{%- endif %}
+{%- for k in picks %}
+{%- set detail = [] %}
+{%- if k.thesis %}{% set _ = detail.append('- **推荐逻辑**：' ~ k.thesis) %}
+{%- elif k.reason %}{% set _ = detail.append('- **推荐逻辑**：' ~ k.reason) %}{% endif %}
+{%- if k.catalysts %}{% set _ = detail.append('- **催化因素**：' ~ k.catalysts|join('；')) %}{% endif %}
+{%- set tech = [] %}
+{%- if k.ma_bullish %}{% set _ = tech.append('均线多头') %}{% endif %}
+{%- if k.above_ma20 %}{% set _ = tech.append('站上MA20') %}{% endif %}
+{%- if k.volume_ratio %}{% set _ = tech.append('量比 ' ~ k.volume_ratio) %}{% endif %}
+{%- if k.change_60d is not none %}{% set _ = tech.append('近60日 ' ~ ('%+.1f'|format(k.change_60d)) ~ '%') %}{% endif %}
+{%- if tech %}{% set _ = detail.append('- **技术状态**：' ~ tech|join(' ｜ ')) %}{% endif %}
+{%- set risks = k.risks or k.risk_flags %}
+{%- if risks %}{% set _ = detail.append('- **风险提示**：' ~ risks|join('；')) %}
+{%- elif k.risk %}{% set _ = detail.append('- **风险提示**：' ~ k.risk) %}{% endif %}
+{%- if k.invalidators %}{% set _ = detail.append('- **逻辑失效条件**：' ~ k.invalidators|join('；')) %}{% endif %}
+{%- if k.watch_items %}{% set _ = detail.append('- **后续重点看**：' ~ k.watch_items|join('；')) %}{% endif %}
+{%- if k.stop_ref %}{% set _ = detail.append('- **参考止损**：跌破 ' ~ k.stop_ref ~ ' 元（按 1.5 倍 20 日 ATR 推算，仅为风控参考）') %}{% endif %}
+
+### {{ num_emoji[loop.index0] if loop.index0 < 10 else loop.index }} {{ k.name }} {{ k.code }}{% if k.score is not none %} ｜ 综合分 {{ k.score }}{% endif %}
+
+{{ detail|join('\n') }}
+{%- endfor %}
+
+> ⚠️ 本栏目为**全市场机器筛选结果**，与你自选股的持仓/风格无关，仅作备选池参考。买入前请自行核对基本面与最新公告，单只仓位建议不超过 1-2 成。

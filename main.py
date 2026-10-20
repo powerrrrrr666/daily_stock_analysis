@@ -1134,7 +1134,7 @@ def run_full_analysis(
             )
             return _return_with_auto_backtest(False)
 
-        # Issue #190: 合并推送（个股+大盘复盘）
+        # Issue #190: 合并推送（个股+大盘复盘+每日推荐）
         if merge_notification and (results or market_report) and not args.no_notify:
             parts = []
             if market_report:
@@ -1145,11 +1145,26 @@ def run_full_analysis(
                     getattr(config, 'report_type', 'simple'),
                 )
                 parts.append(f"# 🚀 个股决策仪表盘\n\n{dashboard_content}")
+
+            # 每日「股票推荐」栏目（全市场选股）。失败不影响主报告，见 daily_picks 模块说明。
+            try:
+                from src.services.daily_picks import generate_daily_picks, render_daily_picks
+
+                picks_payload = generate_daily_picks(config)
+                picks_section = render_daily_picks(picks_payload)
+                if picks_section.strip():
+                    parts.append(picks_section)
+                    logger.info("已生成「今日推荐」栏目（%s 只）", len((picks_payload or {}).get("picks") or []))
+                else:
+                    logger.info("本轮无「今日推荐」内容，跳过该栏目")
+            except Exception as exc:  # noqa: BLE001 - 推荐栏目异常绝不能影响主报告
+                logger.warning("「今日推荐」栏目生成异常，已跳过：%s: %s", type(exc).__name__, exc)
+
             if parts:
                 combined_content = "\n\n---\n\n".join(parts)
                 if pipeline.notifier.is_available():
                     if pipeline.notifier.send(combined_content, email_send_to_all=True, route_type="report"):
-                        logger.info("已合并推送（个股+大盘复盘）")
+                        logger.info("已合并推送（个股+大盘复盘+今日推荐）")
                     else:
                         logger.warning("合并推送失败")
 

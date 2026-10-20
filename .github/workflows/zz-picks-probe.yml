@@ -1,0 +1,52 @@
+name: 每日推荐验证
+
+# 临时：验证「每日推荐」全市场选股链路（验证后删除本文件与 probe 脚本）
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
+
+      - name: 执行选股验证
+        id: probe
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          LITELLM_MODEL: ${{ vars.LITELLM_MODEL || secrets.LITELLM_MODEL }}
+          LLM_CHANNELS: ${{ vars.LLM_CHANNELS || secrets.LLM_CHANNELS }}
+          LITELLM_FALLBACK_MODELS: ${{ vars.LITELLM_FALLBACK_MODELS || secrets.LITELLM_FALLBACK_MODELS || 'deepseek/deepseek-v4-flash' }}
+          DAILY_PICKS_ENABLED: 'true'
+          DAILY_PICKS_STRATEGY: 'bull_trend'
+          DAILY_PICKS_COUNT: '5'
+          REPORT_RENDERER_ENABLED: 'true'
+          REPORT_TEMPLATES_DIR: 'templates'
+        run: |
+          mkdir -p out
+          python .github/scripts/probe_daily_picks.py > out/probe.txt 2>&1 || true
+          tail -100 out/probe.txt
+          V=$(grep -oE "VERDICT: .*" out/probe.txt | tail -1 | sed 's/VERDICT: //' | tr -cd 'A-Za-z0-9._-')
+          echo "verdict=${V:-unknown}" >> $GITHUB_OUTPUT
+
+      - name: 上传结果
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: picksprobe-${{ steps.probe.outputs.verdict || 'unknown' }}
+          path: out/
+          retention-days: 3
