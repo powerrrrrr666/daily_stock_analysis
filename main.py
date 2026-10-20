@@ -1150,7 +1150,7 @@ def run_full_analysis(
             try:
                 from src.services.daily_picks import generate_daily_picks, render_daily_picks
 
-                picks_payload = generate_daily_picks(config)
+                picks_payload = generate_daily_picks()
                 picks_section = render_daily_picks(picks_payload)
                 if picks_section.strip():
                     parts.append(picks_section)

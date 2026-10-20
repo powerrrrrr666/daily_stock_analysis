@@ -121,7 +121,6 @@ def _pick_to_dict(pick: Any) -> Dict[str, Any]:
 
 
 def generate_daily_picks(
-    config: Any = None,
     *,
     count: Optional[int] = None,
     strategy: Optional[str] = None,
@@ -129,8 +128,11 @@ def generate_daily_picks(
 ) -> Optional[Dict[str, Any]]:
     """执行全市场选股，返回可直接渲染的推荐数据；任何失败都返回 None。
 
+    注意：选股引擎使用**它自己的配置类** ``src.services.screening.config.Config``
+    （由 ``from_env()`` 从 LLM_CHANNELS / LITELLM_MODEL / DEEPSEEK_API_KEY 等环境变量解析），
+    与应用层 ``src.config.Config`` 不是同一类型，**不能混用**。
+
     Args:
-        config: 程序 Config（传给选股引擎复用 LLM / 数据源配置）
         count: 推荐数量，默认取 DAILY_PICKS_COUNT 或 5
         strategy: 策略 key，默认取 DAILY_PICKS_STRATEGY 或 bull_trend
         use_llm: 是否启用选股引擎的 LLM 排序（提升质量，多一次 LLM 调用）
@@ -143,16 +145,21 @@ def generate_daily_picks(
     pick_count = count if count is not None else _env_int("DAILY_PICKS_COUNT", DEFAULT_COUNT, 1, 10)
 
     try:
+        from src.services.screening.config import Config as ScreeningConfig
         from src.services.screening.pipeline import screen
 
-        logger.info("[每日推荐] 开始全市场选股：strategy=%s, count=%s, use_llm=%s", strategy_key, pick_count, use_llm)
+        pipeline_config = ScreeningConfig.from_env()
+        logger.info(
+            "[每日推荐] 开始全市场选股：strategy=%s, count=%s, use_llm=%s, model=%s",
+            strategy_key, pick_count, use_llm, getattr(pipeline_config, "llm_model", "?"),
+        )
         result = screen(
             strategy_key,
             market="cn",
             max_output=pick_count,
             use_llm=use_llm,
             daily_enrich=True,
-            config=config,
+            config=pipeline_config,
         )
     except Exception as exc:  # noqa: BLE001 - 选股失败绝不能影响主报告
         logger.warning("[每日推荐] 选股执行失败，本次不输出推荐栏目：%s: %s", type(exc).__name__, exc)

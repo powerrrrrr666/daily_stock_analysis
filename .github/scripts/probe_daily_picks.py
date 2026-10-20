@@ -10,16 +10,14 @@ sys.path.insert(0, os.getcwd())
 
 def main() -> int:
     t0 = time.time()
-    from src.config import get_config  # noqa: E402
     from src.services.daily_picks import generate_daily_picks, render_daily_picks  # noqa: E402
 
-    cfg = get_config()
     print(f"LITELLM_MODEL={os.getenv('LITELLM_MODEL')}", flush=True)
     print(f"DAILY_PICKS_STRATEGY={os.getenv('DAILY_PICKS_STRATEGY')}", flush=True)
     print(f"DAILY_PICKS_COUNT={os.getenv('DAILY_PICKS_COUNT')}", flush=True)
     print("-" * 60, flush=True)
 
-    payload = generate_daily_picks(cfg)
+    payload = generate_daily_picks()
     elapsed = time.time() - t0
 
     print("-" * 60, flush=True)
