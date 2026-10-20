@@ -47,7 +47,6 @@ jobs:
           LLM_MAX_CANDIDATES: '15'
           INDUSTRY_PROVIDER: 'akshare'
           INDUSTRY_PROVIDER_CACHE_TTL_HOURS: '168'
-          INDUSTRY_PROVIDER_CACHE_TTL_HOURS: '168'
           REPORT_RENDERER_ENABLED: 'true'
           REPORT_TEMPLATES_DIR: 'templates'
         run: |
