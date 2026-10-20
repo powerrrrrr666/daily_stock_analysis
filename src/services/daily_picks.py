@@ -162,7 +162,14 @@ def generate_daily_picks(
             config=pipeline_config,
         )
     except Exception as exc:  # noqa: BLE001 - 选股失败绝不能影响主报告
-        logger.warning("[每日推荐] 选股执行失败，本次不输出推荐栏目：%s: %s", type(exc).__name__, exc)
+        import traceback
+
+        logger.warning(
+            "[每日推荐] 选股执行失败，本次不输出推荐栏目：%s: %s\n%s",
+            type(exc).__name__,
+            exc,
+            traceback.format_exc(limit=8),
+        )
         return None
 
     try:
