@@ -34,6 +34,9 @@ jobs:
           DAILY_PICKS_ENABLED: 'true'
           DAILY_PICKS_STRATEGY: 'momentum_quality'
           DAILY_PICKS_COUNT: '5'
+          LLM_MAX_TOKENS: '8192'
+          LLM_MAX_CANDIDATES: '15'
+          INDUSTRY_PROVIDER: 'akshare'
           REPORT_RENDERER_ENABLED: 'true'
           REPORT_TEMPLATES_DIR: 'templates'
         run: |

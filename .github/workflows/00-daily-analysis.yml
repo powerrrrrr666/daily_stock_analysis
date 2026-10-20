@@ -448,6 +448,16 @@ jobs:
           DAILY_PICKS_ENABLED: ${{ vars.DAILY_PICKS_ENABLED || secrets.DAILY_PICKS_ENABLED || 'true' }}
           DAILY_PICKS_STRATEGY: ${{ vars.DAILY_PICKS_STRATEGY || secrets.DAILY_PICKS_STRATEGY || 'momentum_quality' }}
           DAILY_PICKS_COUNT: ${{ vars.DAILY_PICKS_COUNT || secrets.DAILY_PICKS_COUNT || '5' }}
+          # ↓ 以下三个变量仅被「选股引擎」读取（src/services/screening/config.py），
+          #   主分析流程 src/analyzer.py 不读，故不会影响个股分析。
+          # 选股 LLM 排序的输出预算：默认 2048 太小，实测 deepseek 推理模型会返回空内容，
+          # 导致「推荐理由」全部缺失。提到 8192 给足输出空间。
+          LLM_MAX_TOKENS: ${{ vars.SCREENING_LLM_MAX_TOKENS || '8192' }}
+          # 参与 LLM 排序的候选数：默认 30 会让提示词过长被截断，降到 15
+          LLM_MAX_CANDIDATES: ${{ vars.SCREENING_LLM_MAX_CANDIDATES || '15' }}
+          # 行业映射：不配置时 industry 字段为空，选股引擎无法做板块分散，
+          # 实测会选出 5 只银行股。用 akshare 补全行业后再做分散控制。
+          INDUSTRY_PROVIDER: ${{ vars.SCREENING_INDUSTRY_PROVIDER || 'akshare' }}
           
           # ==========================================
           # 系统配置

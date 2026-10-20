@@ -87,6 +87,9 @@ def _pick_to_dict(pick: Any) -> Dict[str, Any]:
     """把 screening 的 Pick 转成模板可直接用的 dict。"""
     price = _fmt_num(getattr(pick, "price", None))
     atr_pct = _fmt_num(getattr(pick, "atr_20_pct", None))
+    score = _fmt_num(getattr(pick, "final_score", None))
+    turnover = _fmt_num(getattr(pick, "turnover_rate", None))
+    vol_ratio = _fmt_num(getattr(pick, "volume_ratio", None))
     # 参考止损：1.5 倍 20 日 ATR（若 ATR 缺失则不推算，避免编造价位）
     stop_ref = None
     if price and atr_pct and 0 < atr_pct < 30:
@@ -95,11 +98,11 @@ def _pick_to_dict(pick: Any) -> Dict[str, Any]:
         "rank": getattr(pick, "rank", 0),
         "code": getattr(pick, "code", ""),
         "name": getattr(pick, "name", ""),
-        "score": _fmt_num(getattr(pick, "final_score", None)),
+        "score": round(score, 1) if score is not None else None,
         "price": price,
         "change_pct": _fmt_num(getattr(pick, "change_pct", None)),
-        "turnover_rate": _fmt_num(getattr(pick, "turnover_rate", None)),
-        "volume_ratio": _fmt_num(getattr(pick, "volume_ratio", None)),
+        "turnover_rate": round(turnover, 2) if turnover is not None else None,
+        "volume_ratio": round(vol_ratio, 2) if vol_ratio is not None else None,
         "industry": getattr(pick, "industry", "") or "",
         "concepts": getattr(pick, "concepts", "") or "",
         "reason": getattr(pick, "ranking_reason", "") or "",
