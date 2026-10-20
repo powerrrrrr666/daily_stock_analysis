@@ -1155,8 +1155,13 @@ def run_full_analysis(
                 if picks_section.strip():
                     parts.append(picks_section)
                     logger.info("已生成「今日推荐」栏目（%s 只）", len((picks_payload or {}).get("picks") or []))
+                elif picks_payload is None:
+                    logger.info("本轮无「今日推荐」数据（选股关闭或执行失败），跳过该栏目")
                 else:
-                    logger.info("本轮无「今日推荐」内容，跳过该栏目")
+                    # 有数据但渲染为空：通常是 REPORT_RENDERER_ENABLED 未开启或模板缺失
+                    logger.warning(
+                        "「今日推荐」有数据但渲染为空，跳过该栏目（请检查 REPORT_RENDERER_ENABLED / REPORT_TEMPLATES_DIR）"
+                    )
             except Exception as exc:  # noqa: BLE001 - 推荐栏目异常绝不能影响主报告
                 logger.warning("「今日推荐」栏目生成异常，已跳过：%s: %s", type(exc).__name__, exc)
 
