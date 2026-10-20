@@ -1,12 +1,13 @@
 name: 每日股票分析
 
 on:
-  # 定时触发 - 每周一至周五 北京时间 07:25 启动（UTC 23:25 周日至周四）
+  # 定时触发 - 每周一至周五 北京时间 07:10 启动（UTC 23:10 周日至周四）
   # 时间预算：GitHub 排队延迟 8~20 分钟 + 环境准备约 4 分钟 + AI 分析约 26~30 分钟
-  # 即 07:25 启动 → 约 08:00~08:20 送达微信，确保 08:30 前收到
+  #          + 全市场选股约 5~15 分钟（首日无行业缓存时较慢）
+  # 即 07:10 启动 → 约 07:55~08:20 送达微信，确保 08:30 前收到
   # （注：真实完整分析实测耗时约 29 分钟；若 AI 未配置会「快速失败」，耗时反而短，勿被误导）
   schedule:
-    - cron: '25 23 * * 0-4'    # UTC 23:25 = 北京时间 07:25（次日）
+    - cron: '10 23 * * 0-4'    # UTC 23:10 = 北京时间 07:10（次日）
   
   # 手动触发
   workflow_dispatch:
@@ -62,7 +63,18 @@ jobs:
       - name: 创建必要目录
         run: |
           mkdir -p data logs reports
-      
+
+      # 缓存「行业板块映射表」：选股引擎首次构建需拉取 80 个行业+80 个概念板块，
+      # 实测多耗约 11 分钟。缓存后常规日直接命中，选股耗时回落到约 5 分钟。
+      # 滚动 key（用 run_id 保证每次保存新缓存，restore-keys 命中上一次）。
+      - name: 缓存行业板块映射
+        uses: actions/cache@v4
+        with:
+          path: data/industry_provider_cache
+          key: industry-cache-${{ github.run_id }}
+          restore-keys: |
+            industry-cache-
+
       - name: 执行股票分析
         env:
           # ==========================================
@@ -458,6 +470,9 @@ jobs:
           # 行业映射：不配置时 industry 字段为空，选股引擎无法做板块分散，
           # 实测会选出 5 只银行股。用 akshare 补全行业后再做分散控制。
           INDUSTRY_PROVIDER: ${{ vars.SCREENING_INDUSTRY_PROVIDER || 'akshare' }}
+          # 行业板块映射缓存有效期：默认 24 小时会导致每天重新拉取 80 个板块（实测多耗 11 分钟），
+          # 提到 7 天，配合下方 actions/cache 缓存目录，常规日只需命中缓存。
+          INDUSTRY_PROVIDER_CACHE_TTL_HOURS: ${{ vars.SCREENING_INDUSTRY_TTL_HOURS || '168' }}
           
           # ==========================================
           # 系统配置
