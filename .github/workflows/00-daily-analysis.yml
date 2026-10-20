@@ -440,9 +440,13 @@ jobs:
           # 每日「股票推荐」栏目（全市场选股）
           # ==========================================
           # 开启后报告末尾会附「🎯 今日推荐」：从全市场筛 3-5 只当下符合买入条件的票。
+          # 策略可选（选股引擎内置）：momentum_quality 趋势质量（默认）/ balanced_alpha 均衡多因子 /
+          #   quality_value 稳健价值 / blue_chip_income 蓝筹收益质量 / low_volatility_quality 低波质量 /
+          #   dual_low 双低 / shrink_pullback 缩量回踩 / volume_breakout 放量突破 /
+          #   oversold_reversal 超跌反转 / capital_heat 资金热度
           # 该栏目生成失败不影响主报告（个股+大盘）推送。
           DAILY_PICKS_ENABLED: ${{ vars.DAILY_PICKS_ENABLED || secrets.DAILY_PICKS_ENABLED || 'true' }}
-          DAILY_PICKS_STRATEGY: ${{ vars.DAILY_PICKS_STRATEGY || secrets.DAILY_PICKS_STRATEGY || 'bull_trend' }}
+          DAILY_PICKS_STRATEGY: ${{ vars.DAILY_PICKS_STRATEGY || secrets.DAILY_PICKS_STRATEGY || 'momentum_quality' }}
           DAILY_PICKS_COUNT: ${{ vars.DAILY_PICKS_COUNT || secrets.DAILY_PICKS_COUNT || '5' }}
           
           # ==========================================

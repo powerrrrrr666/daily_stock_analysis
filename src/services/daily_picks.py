@@ -16,26 +16,25 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# 策略 key -> 中文显示名（仅用于报告标题）
+# 策略 key -> 中文显示名
+# 注意：这是**选股引擎内置策略**（src/services/screening/strategies/*.yaml），
+# 与仓库根目录 strategies/ 下的那套（bull_trend / hot_theme 等）**不是同一批**，
+# 名称不可混用。以引擎实际加载结果为准，见 _resolve_strategy()。
 STRATEGY_DISPLAY_NAMES: Dict[str, str] = {
-    "bull_trend": "多头趋势",
-    "box_oscillation": "箱体震荡",
-    "bottom_volume": "底部放量",
-    "ma_golden_cross": "均线金叉",
-    "volume_breakout": "量能突破",
-    "shrink_pullback": "缩量回调",
-    "hot_theme": "热点题材",
-    "dragon_head": "龙头战法",
-    "event_driven": "事件驱动",
-    "growth_quality": "成长质量",
-    "chan_theory": "缠论",
-    "wave_theory": "波浪理论",
-    "emotion_cycle": "情绪周期",
-    "expectation_repricing": "预期重估",
-    "one_yang_three_yin": "一阳三阴",
+    "momentum_quality": "趋势质量",
+    "balanced_alpha": "均衡多因子",
+    "quality_value": "稳健价值",
+    "blue_chip_income": "蓝筹收益质量",
+    "low_volatility_quality": "低波质量",
+    "dual_low": "双低选股",
+    "shrink_pullback": "缩量回踩",
+    "volume_breakout": "放量突破",
+    "oversold_reversal": "超跌反转",
+    "capital_heat": "资金热度",
 }
 
-DEFAULT_STRATEGY = "bull_trend"
+# 默认策略：趋势质量（趋势确认 + 基本面质量，中线可持有）
+DEFAULT_STRATEGY = "momentum_quality"
 DEFAULT_COUNT = 5
 
 
@@ -120,6 +119,33 @@ def _pick_to_dict(pick: Any) -> Dict[str, Any]:
     }
 
 
+def _resolve_strategy(requested: str, strategies_dir: Any) -> str:
+    """校验策略名是否存在于选股引擎实际加载的策略集合中；不存在则回退默认策略。"""
+    try:
+        from src.services.screening.strategy import load_all_strategies
+
+        available = list((load_all_strategies(strategies_dir) or {}).keys())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[每日推荐] 读取策略列表失败，直接使用 %s：%s", requested, exc)
+        return requested
+
+    if not available:
+        logger.warning("[每日推荐] 策略目录为空，直接使用 %s", requested)
+        return requested
+
+    if requested in available:
+        return requested
+
+    fallback = DEFAULT_STRATEGY if DEFAULT_STRATEGY in available else available[0]
+    logger.warning(
+        "[每日推荐] 策略 %r 不存在，已回退为 %r。可用策略：%s",
+        requested,
+        fallback,
+        ", ".join(available),
+    )
+    return fallback
+
+
 def generate_daily_picks(
     *,
     count: Optional[int] = None,
@@ -149,6 +175,7 @@ def generate_daily_picks(
         from src.services.screening.pipeline import screen
 
         pipeline_config = ScreeningConfig.from_env()
+        strategy_key = _resolve_strategy(strategy_key, getattr(pipeline_config, "strategies_dir", None))
         logger.info(
             "[每日推荐] 开始全市场选股：strategy=%s, count=%s, use_llm=%s, model=%s",
             strategy_key, pick_count, use_llm, getattr(pipeline_config, "llm_model", "?"),
