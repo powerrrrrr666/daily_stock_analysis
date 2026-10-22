@@ -1913,12 +1913,37 @@ class NotificationService(
         config = get_config()
         if getattr(config, 'report_renderer_enabled', False) and results:
             from src.services.report_renderer import render
+
+            # 数据完整性说明：明确告知本次是否全部标的都取到了数据
+            def _norm_code(value) -> str:
+                text = str(value or "").strip().upper()
+                for prefix in ("SH", "SZ", "BJ", "HK", "US"):
+                    if text.startswith(prefix):
+                        text = text[len(prefix):]
+                return text.lstrip(".")
+
+            data_integrity_line = ""
+            expected = [_norm_code(c) for c in (getattr(config, 'stock_list', None) or []) if c]
+            if expected:
+                analyzed = {_norm_code(getattr(r, 'code', '')) for r in results}
+                missing = [c for c in expected if c not in analyzed]
+                if missing:
+                    data_integrity_line = (
+                        f"⚠️ 数据完整性：{len(expected)} 只中 {len(expected) - len(missing)} 只取到数据，"
+                        f"缺 {len(missing)} 只（{'、'.join(missing[:6])}）"
+                    )
+                else:
+                    data_integrity_line = f"✅ 数据完整性：{len(expected)} 只全部取到当日完整数据"
+
             out = render(
                 platform='brief',
                 results=results,
                 report_date=report_date,
                 summary_only=False,
-                extra_context={"report_language": report_language},
+                extra_context={
+                    "report_language": report_language,
+                    "data_integrity_line": data_integrity_line,
+                },
             )
             if out:
                 return out

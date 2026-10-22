@@ -17,10 +17,14 @@
 {%- if market_status_line %}
 > {{ market_status_line }}
 {%- endif %}
+> 📊 数据基准：**{{ report_date }} 收盘（当日完整数据）**
+{%- if data_integrity_line %}
+> {{ data_integrity_line }}
+{%- endif %}
 
 ---
 
-## 先说人话：今天怎么办
+## 先说人话：接下来怎么办
 
 {{ summary_lines|join('\n') }}
 
