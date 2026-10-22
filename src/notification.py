@@ -17,6 +17,7 @@ A股自选股智能分析系统 - 通知层
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -1914,6 +1915,23 @@ class NotificationService(
         if getattr(config, 'report_renderer_enabled', False) and results:
             from src.services.report_renderer import render
 
+            # 早报 / 收盘复盘：数据基准与措辞不同
+            # 早报（07:00 触发）用的是**上一交易日收盘**数据，标题写当日日期（面向今日计划）
+            # 收盘（15:35 触发）用的是**当日收盘**数据
+            report_mode = (os.getenv('REPORT_MODE') or '').strip().lower()
+            if report_mode not in ('morning', 'close'):
+                report_mode = 'morning' if datetime.now().hour < 12 else 'close'
+            if report_mode == 'morning':
+                mode_label = '盘前'
+                data_scope = '上一交易日'
+                data_baseline_line = "📊 数据基准：**上一交易日收盘（完整数据）** ｜ 用于今日盘前计划"
+                action_heading = "先说人话：今天怎么办"
+            else:
+                mode_label = '收盘'
+                data_scope = '当日'
+                data_baseline_line = f"📊 数据基准：**{report_date} 收盘（当日完整数据）**"
+                action_heading = "先说人话：接下来怎么办"
+
             # 数据完整性说明：明确告知本次是否全部标的都取到了数据
             def _norm_code(value) -> str:
                 text = str(value or "").strip().upper()
@@ -1933,7 +1951,9 @@ class NotificationService(
                         f"缺 {len(missing)} 只（{'、'.join(missing[:6])}）"
                     )
                 else:
-                    data_integrity_line = f"✅ 数据完整性：{len(expected)} 只全部取到当日完整数据"
+                    data_integrity_line = (
+                        f"✅ 数据完整性：{len(expected)} 只全部取到{data_scope}完整数据"
+                    )
 
             out = render(
                 platform='brief',
@@ -1943,6 +1963,9 @@ class NotificationService(
                 extra_context={
                     "report_language": report_language,
                     "data_integrity_line": data_integrity_line,
+                    "data_baseline_line": data_baseline_line,
+                    "action_heading": action_heading,
+                    "mode_label": mode_label,
                 },
             )
             if out:

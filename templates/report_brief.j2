@@ -11,20 +11,20 @@
 {%- set one0 = core0.get('one_sentence') or e.result.analysis_summary or e.localized_trend_prediction or '暂无判断' -%}
 {%- set _ = summary_lines.append('- **' ~ e.stock_name ~ '** ' ~ e.signal_emoji ~ ' ' ~ e.signal_text ~ '：' ~ one0|truncate(42, true, '…')) -%}
 {%- endfor -%}
-# 📈 自选股简报（{{ report_date }}）
+# 📈 自选股简报（{{ report_date }}{{ ' ' ~ mode_label if mode_label else '' }}）
 
 > {{ results|length }} 只自选股 ｜ 🟢 买入 {{ buy_count }} · 🟡 观望 {{ hold_count }} · 🔴 减仓 {{ sell_count }}
 {%- if market_status_line %}
 > {{ market_status_line }}
 {%- endif %}
-> 📊 数据基准：**{{ report_date }} 收盘（当日完整数据）**
+> {{ data_baseline_line or ('📊 数据基准：**' ~ report_date ~ ' 收盘（当日完整数据）**') }}
 {%- if data_integrity_line %}
 > {{ data_integrity_line }}
 {%- endif %}
 
 ---
 
-## 先说人话：接下来怎么办
+## {{ action_heading or '先说人话：接下来怎么办' }}
 
 {{ summary_lines|join('\n') }}
 
