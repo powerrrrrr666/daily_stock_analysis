@@ -1915,17 +1915,19 @@ class NotificationService(
         if getattr(config, 'report_renderer_enabled', False) and results:
             from src.services.report_renderer import render
 
-            # 早报 / 收盘复盘：数据基准与措辞不同
-            # 早报（07:00 触发）用的是**上一交易日收盘**数据，标题写当日日期（面向今日计划）
-            # 收盘（15:35 触发）用的是**当日收盘**数据
+            # 午间 / 收盘复盘：数据基准与措辞不同
+            # 午间（11:35 触发）用当日**上午收盘**半日数据，用于午后操作
+            # 收盘（15:35 触发）用当日**完整收盘**数据
             report_mode = (os.getenv('REPORT_MODE') or '').strip().lower()
-            if report_mode not in ('morning', 'close'):
-                report_mode = 'morning' if datetime.now().hour < 12 else 'close'
-            if report_mode == 'morning':
-                mode_label = '盘前'
-                data_scope = '上一交易日'
-                data_baseline_line = "📊 数据基准：**上一交易日收盘（完整数据）** ｜ 用于今日盘前计划"
-                action_heading = "先说人话：今天怎么办"
+            if report_mode not in ('midday', 'close'):
+                report_mode = 'midday' if datetime.now().hour < 14 else 'close'
+            if report_mode == 'midday':
+                mode_label = '午间'
+                data_scope = '上午收盘'
+                data_baseline_line = (
+                    f"📊 数据基准：**{report_date} 上午收盘（半日数据）** ｜ 用于午后操作"
+                )
+                action_heading = "先说人话：下午怎么做"
             else:
                 mode_label = '收盘'
                 data_scope = '当日'
@@ -1966,6 +1968,21 @@ class NotificationService(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("持仓补仓评估失败，报告将不含该栏目：%s: %s", type(exc).__name__, exc)
 
+            # 操作信号扫描（可执行买点/补仓点，解决「全是观望」的问题）
+            opportunities = None
+            try:
+                from src.services.opportunities import scan_opportunities
+                from src.services.positions import load_positions
+
+                opportunities = scan_opportunities(results, load_positions())
+                logger.info(
+                    "操作信号扫描完成：可买 %s / 等触发 %s / 该减 %s / 无信号 %s",
+                    opportunities.get("buy_count"), opportunities.get("near_count"),
+                    opportunities.get("trim_count"), len(opportunities.get("none_names") or []),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("操作信号扫描失败，报告将不含该栏目：%s: %s", type(exc).__name__, exc)
+
             out = render(
                 platform='brief',
                 results=results,
@@ -1978,6 +1995,7 @@ class NotificationService(
                     "action_heading": action_heading,
                     "mode_label": mode_label,
                     "positions_rows": positions_rows,
+                    "opportunities": opportunities,
                 },
             )
             if out:

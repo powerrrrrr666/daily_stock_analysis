@@ -24,6 +24,37 @@
 
 ---
 
+{%- if opportunities and opportunities.actionable %}
+
+## 🎯 操作信号（今天能做什么）
+
+{%- set groups = [
+    ('🟢 可买入', '🟢 现在就能买'),
+    ('🟢 可补仓', '🟢 现在就能补仓'),
+    ('🟡 等触发', '🟡 等到价位就能买'),
+    ('🟠 该减仓', '🟠 该减 / 止盈')
+] -%}
+{%- for key, title in groups -%}
+{%- set items = opportunities.actionable | selectattr('action', 'equalto', key) | list -%}
+{%- if items %}
+
+**{{ title }}（{{ items|length }} 只）**
+{%- for r in items %}
+- **{{ r.name }} {{ r.code }}**　{{ r.price }} 元{% if r.pct_chg is not none %}（{{ '%+.2f'|format(r.pct_chg) }}%）{% endif %}{% if r.held %}　*持仓*{% endif %}　{% if r.action in ('🟡 等触发',) %}**{{ r.level }} 即为买点**{% if r.gap_pct is not none %}（距现价 {{ '%+.1f'|format(r.gap_pct) }}%）{% endif %}{% else %}操作价位 **{{ r.level }}**{% endif %}{% if r.stop %}　｜ 止损 **{{ r.stop }}**{% endif %}
+
+  - {{ r.reason }}
+{%- endfor %}
+
+{%- endif -%}
+{%- endfor -%}
+{%- if opportunities.none_names %}
+**⚪ 暂无信号（{{ opportunities.none_names|length }} 只）**：{{ opportunities.none_names|join('、') }}——形态未满足条件，今天不用动。
+{%- endif %}
+
+---
+
+{%- endif %}
+
 ## {{ action_heading or '先说人话：接下来怎么办' }}
 
 {{ summary_lines|join('\n') }}

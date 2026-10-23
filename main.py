@@ -1147,10 +1147,17 @@ def run_full_analysis(
                 parts.append(f"# 🚀 个股决策仪表盘\n\n{dashboard_content}")
 
             # 每日「股票推荐」栏目（全市场选股）。失败不影响主报告，见 daily_picks 模块说明。
+            # 午间报告不含该栏目（用户要求：上午那份不要股票推荐，且午休时段时间也紧）。
             try:
-                from src.services.daily_picks import generate_daily_picks, render_daily_picks
+                if (os.getenv('REPORT_MODE') or '').strip().lower() == 'midday':
+                    logger.info("午间报告模式：跳过「今日推荐」栏目")
+                    picks_payload = None
+                else:
+                    from src.services.daily_picks import generate_daily_picks
 
-                picks_payload = generate_daily_picks()
+                    picks_payload = generate_daily_picks()
+                from src.services.daily_picks import render_daily_picks
+
                 picks_section = render_daily_picks(picks_payload)
                 if picks_section.strip():
                     parts.append(picks_section)
