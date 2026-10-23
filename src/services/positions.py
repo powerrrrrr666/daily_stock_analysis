@@ -126,8 +126,11 @@ def _evaluate(price: float, cost: float, ma5: Optional[float],
 
     # 4) 贴近支撑 → 观察位
     if dist_sup is not None and dist_sup <= NEAR_SUPPORT_PCT:
+        tight = ""
+        if dist_sup <= 2.0:
+            tight = "（已贴在支撑上，一旦跌破就是新一轮下跌，**现在抢补极易被埋**）"
         return {**base, "state": STATE_WATCH,
-                "reason": f"浮亏 {abs(pnl):.1f}%，距 20 日支撑 {support} 仅 {dist_sup:.1f}%，已到补仓观察位；"
+                "reason": f"浮亏 {abs(pnl):.1f}%，距 20 日支撑 {support} 仅 {dist_sup:.1f}%{tight}；"
                           f"**必须等止跌确认**（放量阳线收复 MA5，或连续 2 日不破支撑）才可分批，别抢"}
 
     # 5) 其余
