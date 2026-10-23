@@ -1955,6 +1955,17 @@ class NotificationService(
                         f"✅ 数据完整性：{len(expected)} 只全部取到{data_scope}完整数据"
                     )
 
+            # 持仓成本与补仓机会（读 positions.json，失败不影响主报告）
+            positions_rows = []
+            try:
+                from src.services.positions import build_position_rows
+
+                positions_rows = build_position_rows(results)
+                if positions_rows:
+                    logger.info("持仓补仓评估完成：%s 只", len(positions_rows))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("持仓补仓评估失败，报告将不含该栏目：%s: %s", type(exc).__name__, exc)
+
             out = render(
                 platform='brief',
                 results=results,
@@ -1966,6 +1977,7 @@ class NotificationService(
                     "data_baseline_line": data_baseline_line,
                     "action_heading": action_heading,
                     "mode_label": mode_label,
+                    "positions_rows": positions_rows,
                 },
             )
             if out:

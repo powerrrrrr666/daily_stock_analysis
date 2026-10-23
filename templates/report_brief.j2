@@ -29,6 +29,31 @@
 {{ summary_lines|join('\n') }}
 
 ---
+{%- if positions_rows %}
+
+## 💼 你的持仓（成本 → 现价）
+
+{%- set pos_lines = [] -%}
+{%- for p in positions_rows -%}
+{%- set head = '- **' ~ p.name ~ ' ' ~ p.code ~ '**　成本 **' ~ p.cost ~ '** → 现价 **' ~ (p.price or '—') ~ '**' -%}
+{%- if p.pnl_pct is not none -%}
+{%- set head = head ~ '（**' ~ ('%+.2f'|format(p.pnl_pct)) ~ '%**）' -%}
+{%- endif -%}
+{%- set head = head ~ '　' ~ (p.state or '') -%}
+{%- set _ = pos_lines.append(head) -%}
+{%- if p.reason -%}
+{%- set _ = pos_lines.append('  - ' ~ p.reason) -%}
+{%- endif -%}
+{%- endfor %}
+
+{{ pos_lines|join('\n') }}
+{%- if positions_rows | selectattr('state', 'equalto', '🔴 已破支撑') | list %}
+
+> ⚠️ 补仓铁律：**已跌破支撑位的票不要补**——那是在接下落的刀，不是摊薄成本。等重新站回支撑再说。
+{%- endif %}
+{%- endif %}
+
+---
 {%- for e in enriched %}
 {%- set result = e.result %}
 {%- set dash = result.dashboard or {} %}
