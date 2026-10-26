@@ -1983,6 +1983,26 @@ class NotificationService(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("操作信号扫描失败，报告将不含该栏目：%s: %s", type(exc).__name__, exc)
 
+            # 走势预判 + 持仓做T建议（失败不影响主报告）
+            forecasts: List[dict] = []
+            forecast_map: Dict[str, dict] = {}
+            t_plans: List[dict] = []
+            try:
+                from src.services.forecast import build_forecasts, build_t_plans
+                from src.services.positions import load_positions as _load_positions
+
+                pos_map = _load_positions()
+                forecasts = build_forecasts(results)
+                forecast_map = {row["code"]: row for row in forecasts}
+                t_plans = build_t_plans(results, pos_map)
+                logger.info(
+                    "走势预判 %s 只；做T建议 %s 条（可做 %s 条）",
+                    len(forecasts), len(t_plans),
+                    len([t for t in t_plans if t.get("side")]),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("走势预判/做T建议计算失败，报告将不含该栏目：%s: %s", type(exc).__name__, exc)
+
             out = render(
                 platform='brief',
                 results=results,
@@ -1996,6 +2016,8 @@ class NotificationService(
                     "mode_label": mode_label,
                     "positions_rows": positions_rows,
                     "opportunities": opportunities,
+                    "forecast_map": forecast_map,
+                    "t_plans": t_plans,
                 },
             )
             if out:

@@ -60,6 +60,30 @@
 {{ summary_lines|join('\n') }}
 
 ---
+{%- if t_plans %}
+
+## 🔁 做T机会（摊低持仓成本）
+
+{%- set t_lines = [] -%}
+{%- for t in t_plans -%}
+{%- set head = '- **' ~ t.name ~ ' ' ~ t.code ~ '**　成本 ' ~ t.cost ~ ' → 现价 ' ~ t.price ~ '　' ~ t.verdict -%}
+{%- set _ = t_lines.append(head) -%}
+{%- if t.side == 'high' and t.sell_at and t.buy_at -%}
+{%- set _ = t_lines.append('  - **先在 ' ~ t.sell_at ~ ' 卖 1/3 → 回落到 ' ~ t.buy_at ~ ' 买回**，成本约降 ' ~ t.saving ~ ' 元/股') -%}
+{%- elif t.side == 'low' and t.buy_at and t.sell_at -%}
+{%- set _ = t_lines.append('  - **先在 ' ~ t.buy_at ~ ' 买 1/3 → 反弹到 ' ~ t.sell_at ~ ' 卖出**，成本约降 ' ~ t.saving ~ ' 元/股') -%}
+{%- endif -%}
+{%- if t.reason -%}
+{%- set _ = t_lines.append('  - ' ~ t.reason) -%}
+{%- endif -%}
+{%- endfor %}
+
+{{ t_lines|join('\n') }}
+
+> ⚠️ 做T前提：当日振幅 ≥ 2.5%（否则价差被手续费和滑点吃掉）。**破位单边下跌时做T会越做越低，涨停单边上涨时卖出容易接不回来**——这两种情况本栏目会直接劝阻。
+{%- endif %}
+
+---
 {%- if positions_rows %}
 
 ## 💼 你的持仓（成本 → 现价）
@@ -129,6 +153,13 @@
 {%- if one_sentence %}
 
 **一句话判断**：{{ clip(one_sentence, 44) }}
+{%- endif %}
+{%- set fc = (forecast_map or {}).get(result.code) %}
+{%- if fc %}
+
+**走势预判**：{{ fc.bias }}　{{ fc.note }}
+
+- 判断依据：{{ fc.basis }}
 {%- endif %}
 {%- if bullets %}
 
