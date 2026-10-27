@@ -2003,6 +2003,18 @@ class NotificationService(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("走势预判/做T建议计算失败，报告将不含该栏目：%s: %s", type(exc).__name__, exc)
 
+            # 把「持仓操作 / 补仓判断 / 做T建议」合并成统一清单，供「操作信号」板块使用
+            holdings_board: List[dict] = []
+            try:
+                from src.services.forecast import build_holdings_board
+                from src.services.positions import load_positions as _lp
+
+                holdings_board = build_holdings_board(
+                    _lp(), positions_rows, t_plans, opportunities
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("持仓操作清单合并失败：%s: %s", type(exc).__name__, exc)
+
             out = render(
                 platform='brief',
                 results=results,
@@ -2018,6 +2030,7 @@ class NotificationService(
                     "opportunities": opportunities,
                     "forecast_map": forecast_map,
                     "t_plans": t_plans,
+                    "holdings_board": holdings_board,
                 },
             )
             if out:

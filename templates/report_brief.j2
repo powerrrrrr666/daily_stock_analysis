@@ -24,32 +24,47 @@
 
 ---
 
-{%- if opportunities and opportunities.actionable %}
+{%- if holdings_board or (opportunities and opportunities.actionable) %}
 
-## 🎯 操作信号（今天能做什么）
+## 🎯 操作信号（今天做什么）
+
+{%- if holdings_board %}
+
+**💼 你的持仓（{{ holdings_board|length }} 只）**
+{%- for h in holdings_board %}
+- **{{ h.name }} {{ h.code }}**　成本 **{{ h.cost }}** → 现价 **{{ h.price }}**{% if h.pnl_pct is not none %}（**{{ '%+.2f'|format(h.pnl_pct) }}%**）{% endif %}
+
+  - **接下来**：{{ h.next_action }}
+  - **补仓**：{{ h.add_state }}{% if h.add_reason %} —— {{ h.add_reason }}{% endif %}
+  - **做T**：{{ h.t_verdict }}{% if h.t_line %} —— {{ h.t_line }}{% elif h.t_reason %} —— {{ h.t_reason }}{% endif %}
+{%- endfor %}
+{%- endif %}
 
 {%- set groups = [
     ('🟢 可买入', '🟢 现在就能买'),
-    ('🟢 可补仓', '🟢 现在就能补仓'),
-    ('🟡 等触发', '🟡 等到价位就能买'),
-    ('🟠 该减仓', '🟠 该减 / 止盈')
+    ('🟡 等触发', '🟡 等到价位就能买')
 ] -%}
+{%- if opportunities and opportunities.actionable -%}
 {%- for key, title in groups -%}
-{%- set items = opportunities.actionable | selectattr('action', 'equalto', key) | list -%}
+{%- set items = opportunities.actionable | rejectattr('held') | selectattr('action', 'equalto', key) | list -%}
 {%- if items %}
 
 **{{ title }}（{{ items|length }} 只）**
 {%- for r in items %}
-- **{{ r.name }} {{ r.code }}**　{{ r.price }} 元{% if r.pct_chg is not none %}（{{ '%+.2f'|format(r.pct_chg) }}%）{% endif %}{% if r.held %}　*持仓*{% endif %}　{% if r.action in ('🟡 等触发',) %}**{{ r.level }} 即为买点**{% if r.gap_pct is not none %}（距现价 {{ '%+.1f'|format(r.gap_pct) }}%）{% endif %}{% else %}操作价位 **{{ r.level }}**{% endif %}{% if r.stop %}　｜ 止损 **{{ r.stop }}**{% endif %}
+- **{{ r.name }} {{ r.code }}**　{{ r.price }} 元{% if r.pct_chg is not none %}（{{ '%+.2f'|format(r.pct_chg) }}%）{% endif %}　{% if r.action in ('🟡 等触发',) %}**{{ r.level }} 即为买点**{% if r.gap_pct is not none %}（距现价 {{ '%+.1f'|format(r.gap_pct) }}%）{% endif %}{% else %}买点 **{{ r.level }}**{% endif %}{% if r.stop %}　｜ 止损 **{{ r.stop }}**{% endif %}
 
   - {{ r.reason }}
 {%- endfor %}
 
 {%- endif -%}
 {%- endfor -%}
-{%- if opportunities.none_names %}
+{%- endif -%}
+{%- if opportunities and opportunities.none_names %}
+
 **⚪ 暂无信号（{{ opportunities.none_names|length }} 只）**：{{ opportunities.none_names|join('、') }}——形态未满足条件，今天不用动。
 {%- endif %}
+
+> ⚠️ 做T前提：当日振幅 ≥ 2.5%（否则价差被手续费和滑点吃掉）；**破位单边下跌时做T会越做越低，涨停单边上涨时卖出容易接不回来**，这两种情况会直接劝阻。补仓铁律：**已跌破支撑位的票不补**。
 
 ---
 
@@ -58,55 +73,6 @@
 ## {{ action_heading or '先说人话：接下来怎么办' }}
 
 {{ summary_lines|join('\n') }}
-
----
-{%- if t_plans %}
-
-## 🔁 做T机会（摊低持仓成本）
-
-{%- set t_lines = [] -%}
-{%- for t in t_plans -%}
-{%- set head = '- **' ~ t.name ~ ' ' ~ t.code ~ '**　成本 ' ~ t.cost ~ ' → 现价 ' ~ t.price ~ '　' ~ t.verdict -%}
-{%- set _ = t_lines.append(head) -%}
-{%- if t.side == 'high' and t.sell_at and t.buy_at -%}
-{%- set _ = t_lines.append('  - **先在 ' ~ t.sell_at ~ ' 卖 1/3 → 回落到 ' ~ t.buy_at ~ ' 买回**，成本约降 ' ~ t.saving ~ ' 元/股') -%}
-{%- elif t.side == 'low' and t.buy_at and t.sell_at -%}
-{%- set _ = t_lines.append('  - **先在 ' ~ t.buy_at ~ ' 买 1/3 → 反弹到 ' ~ t.sell_at ~ ' 卖出**，成本约降 ' ~ t.saving ~ ' 元/股') -%}
-{%- endif -%}
-{%- if t.reason -%}
-{%- set _ = t_lines.append('  - ' ~ t.reason) -%}
-{%- endif -%}
-{%- endfor %}
-
-{{ t_lines|join('\n') }}
-
-> ⚠️ 做T前提：当日振幅 ≥ 2.5%（否则价差被手续费和滑点吃掉）。**破位单边下跌时做T会越做越低，涨停单边上涨时卖出容易接不回来**——这两种情况本栏目会直接劝阻。
-{%- endif %}
-
----
-{%- if positions_rows %}
-
-## 💼 你的持仓（成本 → 现价）
-
-{%- set pos_lines = [] -%}
-{%- for p in positions_rows -%}
-{%- set head = '- **' ~ p.name ~ ' ' ~ p.code ~ '**　成本 **' ~ p.cost ~ '** → 现价 **' ~ (p.price or '—') ~ '**' -%}
-{%- if p.pnl_pct is not none -%}
-{%- set head = head ~ '（**' ~ ('%+.2f'|format(p.pnl_pct)) ~ '%**）' -%}
-{%- endif -%}
-{%- set head = head ~ '　' ~ (p.state or '') -%}
-{%- set _ = pos_lines.append(head) -%}
-{%- if p.reason -%}
-{%- set _ = pos_lines.append('  - ' ~ p.reason) -%}
-{%- endif -%}
-{%- endfor %}
-
-{{ pos_lines|join('\n') }}
-{%- if positions_rows | selectattr('state', 'equalto', '🔴 已破支撑') | list %}
-
-> ⚠️ 补仓铁律：**已跌破支撑位的票不要补**——那是在接下落的刀，不是摊薄成本。等重新站回支撑再说。
-{%- endif %}
-{%- endif %}
 
 ---
 {%- for e in enriched %}

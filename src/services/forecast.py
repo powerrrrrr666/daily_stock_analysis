@@ -295,3 +295,69 @@ def build_t_plans(results: List[Any], positions: Optional[Dict[str, Dict[str, An
     order = {T_BUY_HIGH: 0, T_BUY_LOW: 1, T_NO: 2, T_FORBID_SURGE: 3, T_FORBID_BREAK: 4}
     rows.sort(key=lambda r: order.get(r.get("verdict", ""), 9))
     return rows
+
+
+# ---------------------------------------------------------------- 持仓操作清单
+def build_holdings_board(positions_map: Optional[Dict[str, Dict[str, Any]]],
+                         positions_rows: Optional[List[Dict[str, Any]]],
+                         t_plans: Optional[List[Dict[str, Any]]],
+                         opportunities: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """把「接下来的操作 / 补仓判断 / 做T建议」合并成每只持仓股一条清单。"""
+    positions_map = positions_map or {}
+    if not positions_map:
+        return []
+
+    pos_by_code = {r.get("code"): r for r in (positions_rows or [])}
+    t_by_code = {t.get("code"): t for t in (t_plans or [])}
+    opp_by_code = {o.get("code"): o for o in ((opportunities or {}).get("actionable") or [])}
+
+    rows: List[Dict[str, Any]] = []
+    for code, info in positions_map.items():
+        p = pos_by_code.get(code) or {}
+        price = p.get("price")
+        if not price:
+            continue
+        add_state = p.get("state") or "⚪ 数据不足"
+        add_reason = p.get("reason") or ""
+        ma5_level = p.get("ma5")
+        sup_level = p.get("support")
+        opp = opp_by_code.get(code) or {}
+
+        if opp.get("action") == "🟠 该减仓" and opp.get("level"):
+            next_action = f"反弹到 **{opp['level']}** 附近减仓"
+        elif add_state.startswith("🔴"):
+            next_action = f"已跌破支撑 **{sup_level or '—'}**，反弹减仓为主，**别补**"
+        elif add_state.startswith("🟢"):
+            next_action = "可在现价附近补第一笔（不超过原仓位 1/3）"
+        elif add_state.startswith("🟡"):
+            level = f"**{ma5_level}**（MA5）" if ma5_level else "关键均线"
+            next_action = f"等站上 {level} 再补；跌破 **{sup_level or '—'}** 减仓"
+        else:
+            next_action = f"暂不加仓；跌破 **{sup_level or '—'}** 减仓"
+
+        t = t_by_code.get(code) or {}
+        t_verdict = t.get("verdict") or "⚪ 无数据"
+        t_line = ""
+        if t.get("side") == "high" and t.get("sell_at") and t.get("buy_at"):
+            t_line = (f"先卖 **{t['sell_at']}** → 回落到 **{t['buy_at']}** 买回，"
+                      f"成本约降 **{t['saving']} 元/股**")
+        elif t.get("side") == "low" and t.get("buy_at") and t.get("sell_at"):
+            t_line = (f"先买 **{t['buy_at']}** → 反弹到 **{t['sell_at']}** 卖出，"
+                      f"成本约降 **{t['saving']} 元/股**")
+
+        rows.append({
+            "code": code,
+            "name": info.get("name") or code,
+            "cost": info.get("cost"),
+            "price": price,
+            "pnl_pct": p.get("pnl_pct"),
+            "next_action": next_action,
+            "add_state": add_state,
+            "add_reason": add_reason,
+            "t_verdict": t_verdict,
+            "t_line": t_line,
+            "t_reason": t.get("reason") or "",
+        })
+
+    rows.sort(key=lambda r: r.get("pnl_pct") if r.get("pnl_pct") is not None else 0)
+    return rows
