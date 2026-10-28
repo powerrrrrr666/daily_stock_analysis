@@ -13,6 +13,7 @@ jobs:
     steps:
       - name: 检查密钥是否注入
         id: check
+        continue-on-error: true
         env:
           TAVILY_API_KEYS: ${{ secrets.TAVILY_API_KEYS }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
@@ -22,6 +23,8 @@ jobs:
           MINIMAX_API_KEYS: ${{ secrets.MINIMAX_API_KEYS }}
           ANSPIRE_API_KEYS: ${{ secrets.ANSPIRE_API_KEYS }}
         run: |
+          mkdir -p out
+          exec > >(tee -a out/log.txt) 2>&1
           echo "── 各密钥是否存在（只显示长度，不泄露内容） ──"
           for name in TAVILY_API_KEYS TAVILY_API_KEY BRAVE_API_KEYS BOCHA_API_KEYS SERPAPI_API_KEYS MINIMAX_API_KEYS ANSPIRE_API_KEYS; do
             val="${!name}"
@@ -70,3 +73,11 @@ jobs:
               print('  -', r.get('title', '')[:60])
           print('TAVILY_OK' if rs else 'TAVILY_EMPTY')
           PY
+
+      - name: 上传验证日志
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: searchprobe
+          path: out/
+          retention-days: 2
