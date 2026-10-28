@@ -32,7 +32,7 @@
 
 **💼 你的持仓（{{ holdings_board|length }} 只）**
 {%- for h in holdings_board %}
-- **{{ h.name }} {{ h.code }}**　成本 **{{ h.cost }}** → 现价 **{{ h.price }}**{% if h.pnl_pct is not none %}（**{{ '%+.2f'|format(h.pnl_pct) }}%**）{% endif %}
+- **{{ h.name }} {{ h.code }}**　成本 **{{ h.cost }}** → 现价 **{{ h.price }}**{% if h.pnl_pct is not none %}（**{{ '%+.2f'|format(h.pnl_pct) }}%**）{% endif %}　成交额 **{{ h.amount or 'N/A' }}**
 
   - **接下来**：{{ h.next_action }}
   - **补仓**：{{ h.add_state }}{% if h.add_reason %} —— {{ h.add_reason }}{% endif %}
@@ -114,7 +114,7 @@
 
 ## {{ num_emoji[loop.index0] if loop.index0 < 10 else loop.index }} {{ e.stock_name }} {{ result.code }} ｜ {{ e.signal_text }}
 
-现价 **{{ price or 'N/A' }}** 元{% if snap.get('pct_chg') %}（{{ snap.get('pct_chg') }}）{% endif %} ｜ 换手率 {{ va.get('turnover_rate') or snap.get('turnover_rate') or 'N/A' }}% ｜ 评分 {{ result.sentiment_score }}
+现价 **{{ price or 'N/A' }}** 元{% if snap.get('pct_chg') %}（{{ snap.get('pct_chg') }}）{% endif %} ｜ 成交额 **{{ snap.get('amount') or 'N/A' }}** ｜ 换手率 {{ va.get('turnover_rate') or snap.get('turnover_rate') or 'N/A' }}% ｜ 振幅 {{ snap.get('amplitude') or 'N/A' }} ｜ 评分 {{ result.sentiment_score }}
 {%- set one_sentence = core.get('one_sentence') or result.analysis_summary %}
 {%- if one_sentence %}
 

@@ -98,6 +98,7 @@ def _extract_market(result: Any) -> Dict[str, Optional[float]]:
         "ma20": _num(pp.get("ma20")),
         "support": _num(pp.get("support_level")),
         "resistance": _num(pp.get("resistance_level")),
+        "amount": snap.get("amount"),
     }
 
 
@@ -172,6 +173,7 @@ def build_position_rows(results: List[Any], positions: Optional[Dict[str, Dict[s
         row.update({
             "price": round(price, 2),
             "pct_chg": market.get("pct_chg"),
+            "amount": market.get("amount"),
             "ma5": market.get("ma5"),
             "support": market.get("support"),
             **evaluated,
