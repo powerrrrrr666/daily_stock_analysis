@@ -1,0 +1,72 @@
+name: ZZ 搜索密钥验证
+
+# 临时：验证 TAVILY_API_KEYS 是否已注入且可用（验证后删除）
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 检查密钥是否注入
+        id: check
+        env:
+          TAVILY_API_KEYS: ${{ secrets.TAVILY_API_KEYS }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          BRAVE_API_KEYS: ${{ secrets.BRAVE_API_KEYS }}
+          BOCHA_API_KEYS: ${{ secrets.BOCHA_API_KEYS }}
+          SERPAPI_API_KEYS: ${{ secrets.SERPAPI_API_KEYS }}
+          MINIMAX_API_KEYS: ${{ secrets.MINIMAX_API_KEYS }}
+          ANSPIRE_API_KEYS: ${{ secrets.ANSPIRE_API_KEYS }}
+        run: |
+          echo "── 各密钥是否存在（只显示长度，不泄露内容） ──"
+          for name in TAVILY_API_KEYS TAVILY_API_KEY BRAVE_API_KEYS BOCHA_API_KEYS SERPAPI_API_KEYS MINIMAX_API_KEYS ANSPIRE_API_KEYS; do
+            val="${!name}"
+            if [ -n "$val" ]; then
+              echo "$name = 已配置（长度 ${#val}，前缀 ${val:0:4}...）"
+            else
+              echo "$name = 空"
+            fi
+          done
+
+          # 工作流判定口径：这 6 个任一非空即为 srch1
+          if [ -n "$TAVILY_API_KEYS" ] || [ -n "$BRAVE_API_KEYS" ] || [ -n "$BOCHA_API_KEYS" ] \
+             || [ -n "$SERPAPI_API_KEYS" ] || [ -n "$MINIMAX_API_KEYS" ] || [ -n "$ANSPIRE_API_KEYS" ]; then
+            echo "判定结果: srch1（已配置）"
+            echo "verdict=srch1" >> $GITHUB_OUTPUT
+          else
+            echo "判定结果: srch0（未配置）"
+            echo "verdict=srch0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 实测 Tavily 搜索是否可用
+        if: steps.check.outputs.verdict == 'srch1'
+        env:
+          TAVILY_API_KEYS: ${{ secrets.TAVILY_API_KEYS }}
+        run: |
+          KEY=$(printf '%s' "$TAVILY_API_KEYS" | cut -d',' -f1 | tr -d ' \r\n')
+          if [ -z "$KEY" ]; then
+            echo "TAVILY 未配置，跳过实测"; exit 0
+          fi
+          echo "── 调用 Tavily 搜索接口 ──"
+          CODE=$(curl -s -o /tmp/tv.json -w "%{http_code}" -X POST https://api.tavily.com/search \
+            -H "Content-Type: application/json" \
+            -d "{\"api_key\":\"$KEY\",\"query\":\"中兴通讯 最新消息\",\"search_depth\":\"basic\",\"max_results\":3}")
+          echo "HTTP 状态: $CODE"
+          python3 - <<'PY'
+          import json
+          try:
+              d = json.load(open('/tmp/tv.json'))
+          except Exception as e:
+              print('响应解析失败:', e); raise SystemExit(0)
+          if 'error' in d or 'detail' in d:
+              print('接口返回错误:', d.get('error') or d.get('detail')); raise SystemExit(0)
+          rs = d.get('results') or []
+          print(f'搜索成功，返回 {len(rs)} 条结果')
+          for r in rs[:3]:
+              print('  -', r.get('title', '')[:60])
+          print('TAVILY_OK' if rs else 'TAVILY_EMPTY')
+          PY
