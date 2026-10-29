@@ -13,6 +13,7 @@ A股自选股智能分析系统 - 核心分析流水线
 
 import logging
 import inspect
+import os
 import threading
 import time
 from pathlib import Path
@@ -698,10 +699,17 @@ class StockAnalysisPipeline:
                 # 使用多维度搜索（最多5次搜索）
                 # 指数目标：查询 subject 仅用注册表中文名称，不把 canonical code /
                 # 六码机器码带入查询（Story 1.5 V7）。
+                # 搜索次数改为可配置：默认 2 次（原硬编码 5 次）。
+                # 11 只票 × 5 次 = 55 次搜索，实测会把 60 分钟的时间预算撑爆
+                # （2026-10-28 收盘报告因此被 cancelled，用户没收到）。
+                try:
+                    _max_searches = max(1, min(5, int(os.getenv("NEWS_MAX_SEARCHES", "2"))))
+                except (TypeError, ValueError):
+                    _max_searches = 2
                 intel_results = self.search_service.search_comprehensive_intel(
                     stock_code=("" if is_index else code),
                     stock_name=stock_name,
-                    max_searches=5
+                    max_searches=_max_searches
                 )
 
                 # 格式化情报报告

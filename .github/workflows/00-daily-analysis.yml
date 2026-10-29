@@ -44,7 +44,7 @@ jobs:
     # 推荐位置仍是 Settings -> Secrets and variables -> Actions -> Repository variables。
     environment: STOCK_LIST
     # 添加超时限制，防止任务卡死（实测耗时波动大：9~45+分钟，超时上限 45→60分钟以容纳慢速运行）
-    timeout-minutes: ${{ fromJSON(vars.ANALYSIS_TIMEOUT_MINUTES || '60') }}
+    timeout-minutes: ${{ fromJSON(vars.ANALYSIS_TIMEOUT_MINUTES || '90') }}
     
     steps:
       - name: 随机延迟（避免固定时间访问）
@@ -497,6 +497,10 @@ jobs:
           # ==========================================
           LOG_LEVEL: INFO
           MAX_WORKERS: ${{ vars.MAX_WORKERS || secrets.MAX_WORKERS || '1' }}
+          # 每只票的新闻搜索次数。原代码硬编码 5 次，11 只票 = 55 次搜索，
+          # 2026-10-28 收盘报告因此跑满 60 分钟被 cancelled（用户没收到报告）。
+          # 降到 2 次：覆盖最重要的两个维度，耗时约为原来的 40%。
+          NEWS_MAX_SEARCHES: ${{ vars.NEWS_MAX_SEARCHES || '2' }}
           # 筹码分布：默认 false（云端接口不稳定）；需启用时在 Settings → Variables 添加 ENABLE_CHIP_DISTRIBUTION=true
           ENABLE_CHIP_DISTRIBUTION: ${{ vars.ENABLE_CHIP_DISTRIBUTION || secrets.ENABLE_CHIP_DISTRIBUTION || 'false' }}
           # 实时行情数据源优先级（腾讯有量比且稳定，推荐首选）
