@@ -26,17 +26,22 @@
 
 {%- if holdings_board or (opportunities and opportunities.actionable) %}
 
-## 🎯 操作信号（今天做什么）
+## {{ signal_heading or '🎯 操作信号' }}
 
 {%- if holdings_board %}
 
-**💼 你的持仓（{{ holdings_board|length }} 只）**
+**💼 你的持仓**
+| 股票 | 成本→现价 | 盈亏 | 成交额 | 接下来怎么做 |
+|---|---|---|---|---|
 {%- for h in holdings_board %}
-- **{{ h.name }} {{ h.code }}**　成本 **{{ h.cost }}** → 现价 **{{ h.price }}**{% if h.pnl_pct is not none %}（**{{ '%+.2f'|format(h.pnl_pct) }}%**）{% endif %}　成交额 **{{ h.amount or 'N/A' }}**
+| {{ h.name }} | {{ h.cost }}→{{ h.price }} | {% if h.pnl_pct is not none %}{{ '%+.1f'|format(h.pnl_pct) }}%{% else %}—{% endif %} | {{ h.amount or '—' }} | {{ h.next_action }} |
+{%- endfor %}
 
-  - **接下来**：{{ h.next_action }}
-  - **补仓**：{{ h.add_state }}{% if h.add_reason %} —— {{ h.add_reason }}{% endif %}
-  - **做T**：{{ h.t_verdict }}{% if h.t_line %} —— {{ h.t_line }}{% elif h.t_reason %} —— {{ h.t_reason }}{% endif %}
+**补仓 · 做T**
+| 股票 | 补仓 | 做T |
+|---|---|---|
+{%- for h in holdings_board %}
+| {{ h.name }} | {{ h.add_state }} | {{ h.t_verdict }}{% if h.t_line %}：{{ h.t_line }}{% endif %} |
 {%- endfor %}
 {%- endif %}
 
@@ -49,30 +54,22 @@
 {%- set items = opportunities.actionable | rejectattr('held') | selectattr('action', 'equalto', key) | list -%}
 {%- if items %}
 
-**{{ title }}（{{ items|length }} 只）**
+**{{ title }}**
+| 股票 | 现价 | 操作 | 价位 | 止损 |
+|---|---|---|---|---|
 {%- for r in items %}
-- **{{ r.name }} {{ r.code }}**　{{ r.price }} 元{% if r.pct_chg is not none %}（{{ '%+.2f'|format(r.pct_chg) }}%）{% endif %}　{% if r.action in ('🟡 等触发',) %}**{{ r.level }} 即为买点**{% if r.gap_pct is not none %}（距现价 {{ '%+.1f'|format(r.gap_pct) }}%）{% endif %}{% else %}买点 **{{ r.level }}**{% endif %}{% if r.stop %}　｜ 止损 **{{ r.stop }}**{% endif %}
-
-  - {{ r.reason }}
+| {{ r.name }} | {{ r.price }} | {% if r.action in ('🟡 等触发',) %}等触发{% if r.gap_pct is not none %}（距 {{ '%+.1f'|format(r.gap_pct) }}%）{% endif %}{% else %}买点{% endif %} | {{ r.level }} | {{ r.stop or '—' }} |
 {%- endfor %}
-
 {%- endif -%}
 {%- endfor -%}
 {%- endif -%}
 {%- if opportunities and opportunities.none_names %}
 
-**⚪ 暂无信号（{{ opportunities.none_names|length }} 只）**：{{ opportunities.none_names|join('、') }}——形态未满足条件，今天不用动。
+**⚪ 暂无信号**：{{ opportunities.none_names|join('、') }}——今天不用动。
 {%- endif %}
 
-> ⚠️ 做T前提：当日振幅 ≥ 2.5%（否则价差被手续费和滑点吃掉）；**破位单边下跌时做T会越做越低，涨停单边上涨时卖出容易接不回来**，这两种情况会直接劝阻。补仓铁律：**已跌破支撑位的票不补**。
-
----
-
+> 做T需振幅 ≥2.5%；破位下跌或涨停时不做T。补仓铁律：跌破支撑不补。
 {%- endif %}
-
-## {{ action_heading or '先说人话：接下来怎么办' }}
-
-{{ summary_lines|join('\n') }}
 
 ---
 {%- for e in enriched %}

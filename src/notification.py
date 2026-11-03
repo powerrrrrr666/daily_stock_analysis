@@ -1928,11 +1928,13 @@ class NotificationService(
                     f"📊 数据基准：**{report_date} 上午收盘（半日数据）** ｜ 用于午后操作"
                 )
                 action_heading = "先说人话：下午怎么做"
+                signal_heading = "🎯 操作信号（下午怎么做）"
             else:
                 mode_label = '收盘'
                 data_scope = '当日'
                 data_baseline_line = f"📊 数据基准：**{report_date} 收盘（当日完整数据）**"
-                action_heading = "先说人话：接下来怎么办"
+                action_heading = "先说人话：明天怎么做"
+                signal_heading = "🎯 操作信号（明天怎么做）"
 
             # 数据完整性说明：明确告知本次是否全部标的都取到了数据
             def _norm_code(value) -> str:
@@ -2025,6 +2027,7 @@ class NotificationService(
                     "data_integrity_line": data_integrity_line,
                     "data_baseline_line": data_baseline_line,
                     "action_heading": action_heading,
+                    "signal_heading": signal_heading,
                     "mode_label": mode_label,
                     "positions_rows": positions_rows,
                     "opportunities": opportunities,
