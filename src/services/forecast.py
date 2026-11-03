@@ -29,6 +29,9 @@ BIAS_WEAK_SCORE = -2
 MIN_AMPLITUDE_FOR_T = 2.5    # 当日振幅低于该值，做T空间不够
 T_RATIO = 1 / 3              # 单次做T建议比例（不超过原仓位 1/3）
 NEAR_LEVEL_PCT = 2.0         # 距压力/支撑多近算"到位"
+# 做T所需的最小持股数：A股买入必须是 100 股整数倍，1/3 仓位不足 100 股就做不了。
+# 300 股 × 1/3 = 100 股，正好是最小可买单位。
+MIN_SHARES_FOR_T = 300
 MID_ZONE_PCT = 3.0           # 距两边都超过该值 → 中间地带，边界不清
 
 T_BUY_HIGH = "🟢 可做T（先卖后买·高抛）"
@@ -196,7 +199,8 @@ def build_forecasts(results: List[Any]) -> List[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------- 做T建议
-def _t_plan_one(price: float, cost: float, market: Dict[str, Optional[float]]) -> Dict[str, Any]:
+def _t_plan_one(price: float, cost: float, market: Dict[str, Optional[float]],
+                shares: Optional[float] = None) -> Dict[str, Any]:
     ma5, ma20 = market.get("ma5"), market.get("ma20")
     support, resistance = market.get("support"), market.get("resistance")
     amp, pct_chg = market.get("amplitude"), market.get("pct_chg")
@@ -204,6 +208,14 @@ def _t_plan_one(price: float, cost: float, market: Dict[str, Optional[float]]) -
     base = {"price": round(price, 2), "cost": cost,
             "pnl_pct": round((price / cost - 1) * 100, 2),
             "amplitude": round(amp, 2) if amp is not None else None}
+
+    # 0) 仓位太小 —— 1/3 不足 100 股，A股买不回来，做T在物理上就不成立
+    if shares is not None and 0 < shares < MIN_SHARES_FOR_T:
+        one_third = int(shares * T_RATIO)
+        return {**base, "verdict": T_NO, "sell_at": None, "buy_at": None, "saving": None,
+                "reason": f"仅持 {int(shares)} 股，1/3 只有 {one_third} 股——A股买入必须是 100 股整数倍，"
+                          f"卖了这 {one_third} 股就得买回至少 100 股，一买回就是加仓、不是做T。"
+                          f"要么把仓位补到 {MIN_SHARES_FOR_T} 股以上，要么直接不动"}
 
     # 1) 振幅不够 —— 空间被摩擦成本吃掉
     if amp is not None and amp < MIN_AMPLITUDE_FOR_T:
@@ -280,13 +292,14 @@ def build_t_plans(results: List[Any], positions: Optional[Dict[str, Dict[str, An
         if not price or not cost:
             continue
         try:
-            plan = _t_plan_one(price, cost, market)
+            plan = _t_plan_one(price, cost, market, info.get("shares"))
         except Exception as exc:  # noqa: BLE001
             logger.warning("[做T建议] %s 计算失败：%s", code, exc)
             continue
         rows.append({
             "code": code,
             "name": info.get("name") or getattr(result, "name", "") or code,
+            "shares": info.get("shares"),
             "side": "high" if plan.get("verdict") == T_BUY_HIGH else ("low" if plan.get("verdict") == T_BUY_LOW else None),
             **plan,
         })
@@ -349,6 +362,7 @@ def build_holdings_board(positions_map: Optional[Dict[str, Dict[str, Any]]],
             "code": code,
             "name": info.get("name") or code,
             "cost": info.get("cost"),
+            "shares": info.get("shares"),
             "price": price,
             "amount": p.get("amount"),
             "pnl_pct": p.get("pnl_pct"),

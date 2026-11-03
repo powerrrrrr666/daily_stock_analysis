@@ -55,7 +55,11 @@ def _num(value: Any) -> Optional[float]:
 
 
 def load_positions(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
-    """读取 positions.json，返回 {归一化代码: {"name", "cost"}}。"""
+    """读取 positions.json，返回 {归一化代码: {"name", "cost", "shares"}}。
+
+    shares 可缺失（视为未知股数），填了才能判断做T是否具备条件：
+    A股买入须为 100 股整数倍，1/3 仓位不足 100 股时实际无法做T。
+    """
     if path is None:
         path = Path(__file__).resolve().parent.parent.parent / "positions.json"
     try:
@@ -78,7 +82,11 @@ def load_positions(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
         code = _norm_code(key)
         if not code:
             continue
-        out[code] = {"name": str(value.get("name") or ""), "cost": cost}
+        out[code] = {
+            "name": str(value.get("name") or ""),
+            "cost": cost,
+            "shares": _num(value.get("shares")),
+        }
     return out
 
 
@@ -155,7 +163,10 @@ def build_position_rows(results: List[Any], positions: Optional[Dict[str, Dict[s
         result = by_code.get(code)
         name = info.get("name") or (getattr(result, "name", "") if result else "") or code
         cost = info["cost"]
-        row: Dict[str, Any] = {"code": code, "name": name, "cost": cost}
+        row: Dict[str, Any] = {
+            "code": code, "name": name, "cost": cost,
+            "shares": info.get("shares"),
+        }
 
         if result is None:
             row.update({"state": STATE_UNKNOWN, "reason": "本轮未取到该股数据，无法评估"})
@@ -170,6 +181,14 @@ def build_position_rows(results: List[Any], positions: Optional[Dict[str, Dict[s
             continue
 
         evaluated = _evaluate(price, cost, market.get("ma5"), market.get("ma20"), market.get("support"))
+        # 仓位过小（不足 300 股）时，"不超过原仓位 1/3"这类分批建议无法落地——
+        # A股买入必须是 100 股整数倍。补一句实话，避免给出做不成的建议。
+        shares = info.get("shares")
+        if shares is not None and 0 < shares < 300 and evaluated.get("state", "").startswith("🟢"):
+            evaluated["reason"] = (
+                f"{evaluated.get('reason', '')}（注：仅持 {int(shares)} 股，"
+                f"补仓最少 100 股，相当于把仓位翻倍，别按「1/3」来算）"
+            )
         row.update({
             "price": round(price, 2),
             "pct_chg": market.get("pct_chg"),

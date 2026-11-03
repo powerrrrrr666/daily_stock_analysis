@@ -32,7 +32,7 @@
 
 **💼 你的持仓**
 {%- for h in holdings_board %}
-- **{{ h.name }}**　{{ h.cost }}→{{ h.price }}{% if h.pnl_pct is not none %}（**{{ '%+.1f'|format(h.pnl_pct) }}%**）{% endif %}　→ {{ h.next_action }}　｜ 补仓 {{ h.add_state }}　｜ 做T {{ h.t_verdict }}{% if h.t_line %}（{{ h.t_line }}）{% endif %}
+- **{{ h.name }}**　{{ h.cost }}→{{ h.price }}{% if h.pnl_pct is not none %}（**{{ '%+.1f'|format(h.pnl_pct) }}%**）{% endif %}{% if h.shares %}　{{ h.shares|int }}股{% endif %}　→ {{ h.next_action }}　｜ 补仓 {{ h.add_state }}　｜ 做T {{ h.t_verdict }}{% if h.t_line %}（{{ h.t_line }}）{% endif %}
 {%- endfor %}
 {%- endif %}
 
