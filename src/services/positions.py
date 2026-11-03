@@ -195,6 +195,8 @@ def build_position_rows(results: List[Any], positions: Optional[Dict[str, Dict[s
             "amount": market.get("amount"),
             "ma5": market.get("ma5"),
             "support": market.get("support"),
+            # 浮亏/浮盈金额：有股数才算，否则为 None
+            "pnl_amount": round((price - cost) * shares, 0) if shares else None,
             **evaluated,
         })
         rows.append(row)
