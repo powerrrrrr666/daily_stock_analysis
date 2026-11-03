@@ -31,17 +31,8 @@
 {%- if holdings_board %}
 
 **💼 你的持仓**
-| 股票 | 成本→现价 | 盈亏 | 成交额 | 接下来怎么做 |
-|---|---|---|---|---|
 {%- for h in holdings_board %}
-| {{ h.name }} | {{ h.cost }}→{{ h.price }} | {% if h.pnl_pct is not none %}{{ '%+.1f'|format(h.pnl_pct) }}%{% else %}—{% endif %} | {{ h.amount or '—' }} | {{ h.next_action }} |
-{%- endfor %}
-
-**补仓 · 做T**
-| 股票 | 补仓 | 做T |
-|---|---|---|
-{%- for h in holdings_board %}
-| {{ h.name }} | {{ h.add_state }} | {{ h.t_verdict }}{% if h.t_line %}：{{ h.t_line }}{% endif %} |
+- **{{ h.name }}**　{{ h.cost }}→{{ h.price }}{% if h.pnl_pct is not none %}（**{{ '%+.1f'|format(h.pnl_pct) }}%**）{% endif %}　→ {{ h.next_action }}　｜ 补仓 {{ h.add_state }}　｜ 做T {{ h.t_verdict }}{% if h.t_line %}（{{ h.t_line }}）{% endif %}
 {%- endfor %}
 {%- endif %}
 
@@ -55,10 +46,8 @@
 {%- if items %}
 
 **{{ title }}**
-| 股票 | 现价 | 操作 | 价位 | 止损 |
-|---|---|---|---|---|
 {%- for r in items %}
-| {{ r.name }} | {{ r.price }} | {% if r.action in ('🟡 等触发',) %}等触发{% if r.gap_pct is not none %}（距 {{ '%+.1f'|format(r.gap_pct) }}%）{% endif %}{% else %}买点{% endif %} | {{ r.level }} | {{ r.stop or '—' }} |
+- **{{ r.name }}**　现价 {{ r.price }}{% if r.action in ('🟡 等触发',) %}　**{{ r.level }} 即为买点**{% if r.gap_pct is not none %}（距 {{ '%+.1f'|format(r.gap_pct) }}%）{% endif %}{% else %}　买点 **{{ r.level }}**{% endif %}{% if r.stop %}　｜ 止损 {{ r.stop }}{% endif %}
 {%- endfor %}
 {%- endif -%}
 {%- endfor -%}
