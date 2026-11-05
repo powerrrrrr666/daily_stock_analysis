@@ -29,7 +29,7 @@ _PUSHPLUS_API_URLS = (
     "http://www.pushplus.plus/send",
 )
 _PUSHPLUS_MAX_ATTEMPTS = 3
-_PUSHPLUS_RETRY_DELAY_SECONDS = 2
+_PUSHPLUS_RETRY_DELAY_SECONDS = 3
 _PUSHPLUS_DEFAULT_TIMEOUT_SECONDS = 20
 
 
@@ -159,9 +159,30 @@ class PushplusSender:
                         logger.info("PushPlus 消息发送成功（%s）", api_url)
                         return True
 
+                    code = result.get('code')
                     error_msg = result.get('msg', '未知错误')
-                    logger.error(f"PushPlus 返回错误: {error_msg}（{api_url}）")
-                    return False
+                    last_error = f"code={code} msg={error_msg}({api_url})"
+                    logger.error(
+                        "PushPlus 返回错误: code=%s msg=%s（%s，第 %s/%s 次）",
+                        code,
+                        error_msg,
+                        api_url,
+                        attempt,
+                        _PUSHPLUS_MAX_ATTEMPTS,
+                    )
+
+                    # 900 = token 无效，重试没有意义，直接放弃
+                    if str(code) == "900":
+                        logger.error("PushPlus token 无效，停止重试")
+                        return False
+
+                    # 其余业务错误码多为服务端偶发（如「服务端验证错误」），
+                    # 2026-11-05 就因此丢掉一份午间报告：当时只发一次就放弃。
+                    if attempt < _PUSHPLUS_MAX_ATTEMPTS:
+                        time.sleep(_PUSHPLUS_RETRY_DELAY_SECONDS)
+                        continue
+                    # 本域名重试用尽，换下一个域名
+                    break
 
                 last_error = f"HTTP {response.status_code}({api_url})"
                 logger.error(
