@@ -209,13 +209,23 @@ def _t_plan_one(price: float, cost: float, market: Dict[str, Optional[float]],
             "pnl_pct": round((price / cost - 1) * 100, 2),
             "amplitude": round(amp, 2) if amp is not None else None}
 
-    # 0) 仓位太小 —— 1/3 不足 100 股，A股买不回来，做T在物理上就不成立
-    if shares is not None and 0 < shares < MIN_SHARES_FOR_T:
-        one_third = int(shares * T_RATIO)
-        return {**base, "verdict": T_NO, "sell_at": None, "buy_at": None, "saving": None,
-                "reason": f"仅持 {int(shares)} 股，1/3 只有 {one_third} 股——A股买入必须是 100 股整数倍，"
-                          f"卖了这 {one_third} 股就得买回至少 100 股，一买回就是加仓、不是做T。"
-                          f"要么把仓位补到 {MIN_SHARES_FOR_T} 股以上，要么直接不动"}
+    # 0) 计算本次可做T的股数：必须是 100 股整数倍，且不超过总仓位 1/3
+    #    例：400 股 -> 1/3 = 133 股 -> 向下取整为 100 股（不是 133）
+    t_shares = None
+    ratio = T_RATIO
+    if shares is not None and shares > 0:
+        lot = int(shares * T_RATIO) // 100 * 100
+        if lot < 100:
+            one_third = int(shares * T_RATIO)
+            return {**base, "verdict": T_NO, "sell_at": None, "buy_at": None, "saving": None,
+                    "t_shares": 0,
+                    "reason": f"仅持 {int(shares)} 股，1/3 只有 {one_third} 股——A股买入必须是 100 股整数倍，"
+                              f"卖了买不回等量，做T在物理上不成立。"
+                              f"要么把仓位补到 {MIN_SHARES_FOR_T} 股以上，要么直接不动"}
+        t_shares = lot
+        ratio = lot / shares
+    base["t_shares"] = t_shares
+    base["t_ratio_pct"] = round(ratio * 100)
 
     # 1) 振幅不够 —— 空间被摩擦成本吃掉
     if amp is not None and amp < MIN_AMPLITUDE_FOR_T:
@@ -246,10 +256,11 @@ def _t_plan_one(price: float, cost: float, market: Dict[str, Optional[float]],
         if dist_res <= NEAR_LEVEL_PCT and (pct_chg is None or pct_chg >= 0):
             sell_at = round(resistance, 2)
             buy_back = round(ma5, 2) if ma5 and ma5 < sell_at else round(price * 0.98, 2)
-            saving = round((sell_at - buy_back) * T_RATIO, 3)
+            saving = round((sell_at - buy_back) * ratio, 3)
+            qty = f"{t_shares} 股" if t_shares else f"{int(ratio * 100)}% 仓位"
             return {**base, "verdict": T_BUY_HIGH, "sell_at": sell_at, "buy_at": buy_back,
                     "saving": saving,
-                    "reason": f"距压力位 {resistance} 仅 {dist_res:.1f}%，可先卖 {int(T_RATIO*100)}%；"
+                    "reason": f"距压力位 {resistance} 仅 {dist_res:.1f}%，可先卖 {qty}；"
                               f"回落到 {buy_back}（MA5 附近）买回，成本约降 {saving} 元/股。"
                               f"若放量突破 {sell_at} 不回落，就别急着买回（防止 T 飞）"}
 
@@ -259,10 +270,11 @@ def _t_plan_one(price: float, cost: float, market: Dict[str, Optional[float]],
         if dist_sup <= NEAR_LEVEL_PCT and (pct_chg is None or pct_chg <= 0):
             buy_at = round(support, 2)
             sell_back = round(ma5, 2) if ma5 and ma5 > buy_at else round(price * 1.02, 2)
-            saving = round((sell_back - buy_at) * T_RATIO, 3)
+            saving = round((sell_back - buy_at) * ratio, 3)
+            qty = f"{t_shares} 股" if t_shares else f"{int(ratio * 100)}% 仓位"
             return {**base, "verdict": T_BUY_LOW, "buy_at": buy_at, "sell_at": sell_back,
                     "saving": saving,
-                    "reason": f"距 20 日支撑 {support} 仅 {dist_sup:.1f}%，可先买 {int(T_RATIO*100)}%；"
+                    "reason": f"距 20 日支撑 {support} 仅 {dist_sup:.1f}%，可先买 {qty}；"
                               f"反弹到 {sell_back}（MA5 附近）卖出，成本约降 {saving} 元/股。"
                               f"若跌破 {buy_at} 就别买第二笔（防止越 T 越低）"}
 
@@ -343,8 +355,17 @@ def build_holdings_board(positions_map: Optional[Dict[str, Dict[str, Any]]],
         elif add_state.startswith("🟢"):
             next_action = "可在现价附近补第一笔（不超过原仓位 1/3）"
         elif add_state.startswith("🟡"):
-            level = f"**{ma5_level}**（MA5）" if ma5_level else "关键均线"
-            next_action = f"等站上 {level} 再补；跌破 **{sup_level or '—'}** 减仓"
+            if ma5_level and price and price > ma5_level:
+                # 已经在 MA5 上方 → 卡住补仓的是压力位，不是 MA5
+                res_level = p.get("resistance")
+                if res_level:
+                    next_action = (f"等突破 **{round(res_level * 1.005, 2)}** 或回踩 **{ma5_level}**（MA5）再补；"
+                                   f"跌破 **{sup_level or '—'}** 减仓")
+                else:
+                    next_action = f"等回踩 **{ma5_level}**（MA5）再补；跌破 **{sup_level or '—'}** 减仓"
+            else:
+                level = f"**{ma5_level}**（MA5）" if ma5_level else "关键均线"
+                next_action = f"等站上 {level} 再补；跌破 **{sup_level or '—'}** 减仓"
         else:
             next_action = f"暂不加仓；跌破 **{sup_level or '—'}** 减仓"
 

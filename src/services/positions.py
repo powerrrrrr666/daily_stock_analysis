@@ -27,7 +27,8 @@ MIN_LOSS_FOR_ADD = 8.0
 NEAR_SUPPORT_PCT = 3.0
 # 支撑位失守判定（%）
 BREAK_SUPPORT_PCT = -0.5
-
+# 距压力位多近时，不再建议补仓（空间太小）
+NEAR_RESISTANCE_PCT = 2.0
 STATE_ADD = "🟢 可小批补"
 STATE_WATCH = "🟡 观察位"
 STATE_HOLD = "⏸ 暂不补"
@@ -111,10 +112,13 @@ def _extract_market(result: Any) -> Dict[str, Optional[float]]:
 
 
 def _evaluate(price: float, cost: float, ma5: Optional[float],
-              ma20: Optional[float], support: Optional[float]) -> Dict[str, Any]:
+              ma10: Optional[float], ma20: Optional[float],
+              support: Optional[float],
+              resistance: Optional[float] = None) -> Dict[str, Any]:
     """产出补仓判断：state / reason / dist_support / pnl_pct。"""
     pnl = (price / cost - 1.0) * 100.0
     dist_sup = (price / support - 1.0) * 100.0 if support else None
+    dist_res = (resistance / price - 1.0) * 100.0 if resistance else None
 
     base = {"pnl_pct": round(pnl, 2), "dist_support": round(dist_sup, 2) if dist_sup is not None else None}
 
@@ -128,8 +132,23 @@ def _evaluate(price: float, cost: float, ma5: Optional[float],
         return {**base, "state": STATE_HOLD,
                 "reason": f"浮亏仅 {abs(pnl):.1f}%，补仓摊薄效果有限，建议留着子弹等更低位"}
 
+    # 2.5) 趋势破位：MA5 已下穿 MA10 且现价在 MA20 下方
+    #      —— 与「操作信号」模块的破位判定保持一致，否则会出现
+    #      「一边说该减仓、一边说可小批补」的矛盾（2026-11-05 高德红外实例）
+    if ma5 and ma10 and ma20 and ma5 < ma10 and price < ma20:
+        return {**base, "state": STATE_WATCH,
+                "reason": f"MA5({ma5}) 已下穿 MA10({ma10})、现价仍在 MA20({ma20}) 下方，"
+                          f"趋势尚未修复——**这时候补仓是在下跌途中接刀**；"
+                          f"等站上 MA20 且均线重新多头再谈"}
+
     # 3) 浮亏够了，已站上 MA5 → 已脱离最低点
+    #    但若已贴近压力位，补仓空间太小，应先等突破（否则会和「做T高抛」自相矛盾）
     if ma5 and price > ma5:
+        if dist_res is not None and 0 <= dist_res <= NEAR_RESISTANCE_PCT:
+            return {**base, "state": STATE_WATCH,
+                    "reason": f"浮亏 {abs(pnl):.1f}%，虽已站上 MA5({ma5})，"
+                              f"但距 20 日压力位 {resistance} 仅 {dist_res:.1f}%——现在补空间太小；"
+                              f"**等放量突破并站稳 {round(resistance * 1.005, 2)} 再补**，或等回踩 MA5 附近"}
         return {**base, "state": STATE_ADD,
                 "reason": f"浮亏 {abs(pnl):.1f}%，且已站上 MA5({ma5})，脱离近期最低点，可小批补（不超过原仓位的 1/3）"}
 
@@ -180,7 +199,9 @@ def build_position_rows(results: List[Any], positions: Optional[Dict[str, Dict[s
             rows.append(row)
             continue
 
-        evaluated = _evaluate(price, cost, market.get("ma5"), market.get("ma20"), market.get("support"))
+        evaluated = _evaluate(price, cost, market.get("ma5"), market.get("ma10"),
+                              market.get("ma20"), market.get("support"),
+                              market.get("resistance"))
         # 仓位过小（不足 300 股）时，"不超过原仓位 1/3"这类分批建议无法落地——
         # A股买入必须是 100 股整数倍。补一句实话，避免给出做不成的建议。
         shares = info.get("shares")
@@ -195,6 +216,7 @@ def build_position_rows(results: List[Any], positions: Optional[Dict[str, Dict[s
             "amount": market.get("amount"),
             "ma5": market.get("ma5"),
             "support": market.get("support"),
+            "resistance": market.get("resistance"),
             # 浮亏/浮盈金额：有股数才算，否则为 None
             "pnl_amount": round((price - cost) * shares, 0) if shares else None,
             **evaluated,
