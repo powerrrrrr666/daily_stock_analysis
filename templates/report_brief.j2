@@ -37,8 +37,8 @@
 {%- endif %}
 
 {%- set groups = [
-    ('🟢 可买入', '🟢 现在就能买'),
-    ('🟡 等触发', '🟡 等到价位就能买')
+    ('🟢 可买入', '技术面出现买点'),
+    ('🟡 等触发', '技术面还没到位')
 ] -%}
 {%- if opportunities and opportunities.actionable -%}
 {%- for key, title in groups -%}
@@ -47,7 +47,7 @@
 
 **{{ title }}**
 {%- for r in items %}
-- **{{ r.name }}**　现价 {{ r.price }}{% if r.action in ('🟡 等触发',) %}　**{{ r.level }} 即为买点**{% if r.gap_pct is not none %}（距 {{ '%+.1f'|format(r.gap_pct) }}%）{% endif %}{% else %}　买点 **{{ r.level }}**{% endif %}{% if r.stop %}　｜ 止损 {{ r.stop }}{% endif %}
+- **{{ r.name }}**　现价 {{ r.price }}{% if r.action in ('🟡 等触发',) %}　**{{ r.level }} 即为买点**{% if r.gap_pct is not none %}（距 {{ '%+.1f'|format(r.gap_pct) }}%）{% endif %}{% else %}　买点 **{{ r.level }}**{% endif %}{% if r.stop %}　｜ 止损 {{ r.stop }}{% endif %}{% if r.label %}　｜ **{{ r.label }}**{% if r.size %}（{{ r.size }}）{% endif %}{% endif %}
 {%- endfor %}
 {%- endif -%}
 {%- endfor -%}
@@ -59,9 +59,9 @@
 
 > 做T需振幅 ≥2.5%；破位下跌或涨停时不做T。补仓铁律：跌破支撑不补。
 {%- endif %}
+{%- if sector_items %}
 
 ---
-{%- if sector_items %}
 
 ## 🔥 热门板块 · ETF 参考
 
@@ -111,9 +111,14 @@
 {%- if attr.get('strongest_bearish_signal') %}{% set _ = duo.append('看空「' ~ clip(attr.get('strongest_bearish_signal'), 22) ~ '」') %}{% endif %}
 {%- if duo %}{% set _ = bullets.append('- **多空**：' ~ duo|join('　')) %}{% endif %}
 
-## {{ num_emoji[loop.index0] if loop.index0 < 10 else loop.index }} {{ e.stock_name }} {{ result.code }} ｜ {{ (signal_map or {}).get(result.code, {}).get('action') or e.signal_text }}
+## {{ num_emoji[loop.index0] if loop.index0 < 10 else loop.index }} {{ e.stock_name }} {{ result.code }} ｜ {{ (signal_map or {}).get(result.code, {}).get('label') or e.signal_text }}
 
 现价 **{{ price or 'N/A' }}** 元{% if snap.get('pct_chg') %}（{{ snap.get('pct_chg') }}）{% endif %} ｜ 成交额 **{{ snap.get('amount') or 'N/A' }}** ｜ 换手率 {{ va.get('turnover_rate') or snap.get('turnover_rate') or 'N/A' }}% ｜ 振幅 {{ snap.get('amplitude') or 'N/A' }} ｜ 评分 {{ result.sentiment_score }}
+{%- set sig = (signal_map or {}).get(result.code) %}
+{%- if sig and sig.label %}
+
+**综合结论**：{{ sig.label }}{% if sig.conf %}（置信度 {{ sig.conf }}{% if sig.size %} · {{ sig.size }}{% endif %}）{% endif %}　{{ sig.note }}
+{%- endif %}
 {%- set one_sentence = core.get('one_sentence') or result.analysis_summary %}
 {%- if one_sentence %}
 
@@ -132,8 +137,8 @@
 {%- endif %}
 
 **怎么办**
-{%- set sig = (signal_map or {}).get(result.code) %}
-- 🆕 **空仓者** → {% if sig and sig.action in ('🟢 可买入', '🟡 等触发') %}{% if sig.action == '🟢 可买入' %}现价 **{{ sig.level }}** 附近可买{% if sig.stop %}，止损 **{{ sig.stop }}**{% endif %}{% else %}等触发价 **{{ sig.level }}** 再买{% if sig.stop %}，止损 **{{ sig.stop }}**{% endif %}{% endif %}{% else %}{{ clip(pos_advice.get('no_position') or e.localized_operation_advice, 72) }}{% endif %}
+{%- set sig2 = (signal_map or {}).get(result.code) %}
+- 🆕 **空仓者** → {% if sig2 and sig2.label and sig2.label.startswith('🟢') %}现价 **{{ sig2.level }}** 附近可买（{{ sig2.size }}）{% if sig2.stop %}，止损 **{{ sig2.stop }}**{% endif %}{% elif sig2 and sig2.label == '🟡 半仓试' %}现价 **{{ sig2.level }}** 先用**一半仓位**试{% if sig2.stop %}，止损 **{{ sig2.stop }}**{% endif %}，跌破立即走{% elif sig2 and sig2.label == '⚠️ 信号分歧' %}**先不动**——技术面与消息面打架，等分歧消除再出手{% elif sig2 and '等触发' in sig2.label %}到 **{{ sig2.level }}** 再买{% if sig2.stop %}，止损 **{{ sig2.stop }}**{% endif %}{% else %}{{ clip(pos_advice.get('no_position') or e.localized_operation_advice, 72) }}{% endif %}
 - 💼 **持仓者** → {{ clip(pos_advice.get('has_position') or '继续持有，跌破关键支撑再减', 72) }}
 {%- set levels = [] %}
 {%- if sniper.get('ideal_buy') %}{% set _ = levels.append('理想买入 ' ~ clip(clean_sniper(sniper.get('ideal_buy')), 22)) %}{% endif %}

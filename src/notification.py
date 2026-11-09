@@ -2034,12 +2034,32 @@ class NotificationService(
             for _op in (opportunities or {}).get("actionable") or []:
                 _code = str(_op.get("code") or "")
                 if _code:
-                    signal_map[_code] = {
-                        "action": _op.get("action"),
-                        "level": _op.get("level"),
-                        "stop": _op.get("stop"),
-                        "reason": _op.get("reason"),
-                    }
+                    # 存引用而非副本：后面融合出的 label/conf/note 会同步到操作信号列表
+                    signal_map[_code] = _op
+
+            # 规则引擎 × LLM 融合：两者一致→高置信；冲突→降级为半仓/不动，不硬选一边。
+            # 用户要求「要最准确、最有机会盈利的结论」，而非固定某一方优先。
+            try:
+                from src.schemas.decision_action import display_operation_advice_for_result
+                from src.services.opportunities import fuse_signal
+
+                llm_advice = {}
+                for _r in results:
+                    _c = str(getattr(_r, "code", "") or "")
+                    try:
+                        llm_advice[_c] = display_operation_advice_for_result(
+                            _r, report_language=report_language
+                        )
+                    except Exception:  # noqa: BLE001
+                        llm_advice[_c] = ""
+
+                for _code, _sig in signal_map.items():
+                    _fus = fuse_signal(_sig.get("action"), llm_advice.get(_code, ""))
+                    _sig.update(_fus)
+                    _sig["llm_text"] = llm_advice.get(_code, "")
+                logger.info("规则×LLM 信号融合完成：%s 只", len(signal_map))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("信号融合失败，退回规则引擎结论：%s: %s", type(exc).__name__, exc)
 
             out = render(
                 platform='brief',

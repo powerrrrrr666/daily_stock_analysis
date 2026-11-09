@@ -204,3 +204,57 @@ def scan_opportunities(results: List[Any], positions: Optional[Dict[str, Dict[st
         "near_count": len([r for r in rows if r["action"] == ACTION_NEAR]),
         "trim_count": len([r for r in rows if r["action"] == ACTION_TRIM]),
     }
+
+
+# ---------------------------------------------------------------- 规则 × LLM 融合
+def fuse_signal(rule_action: str, llm_text: str) -> Dict[str, Any]:
+    """把「规则引擎的位置结论」与「LLM 的信息面结论」融合。
+
+    设计原则（2026-11-09 用户要求「要最准确、最有机会盈利的结论」）：
+      - 两者一致 → 高置信，正常仓位
+      - 两者冲突 → **不硬选一边**，降级为「半仓试」或「先不动」
+        理由：冲突意味着其中一方掌握的信息不完整，此时满仓的风险收益比最差
+      - 规则引擎提供精确价位，LLM 提供方向与消息面，各用所长
+
+    返回 {label, conf, note, size}；size 用于渲染仓位建议。
+    """
+    txt = str(llm_text or "")
+    llm_buy = any(k in txt for k in ("买入", "增持", "加仓", "看多", "抄底"))
+    llm_hold = any(k in txt for k in ("持有", "持股"))
+    llm_reduce = any(k in txt for k in ("减仓", "清仓", "卖出", "止盈", "止损", "看空", "离场"))
+    llm_watch = any(k in txt for k in ("观望", "等待", "暂不", "不建议"))
+
+    if rule_action in (ACTION_BUY, ACTION_ADD):
+        if llm_buy or llm_hold:
+            return {"label": "🟢 买入（共振）", "conf": "高", "size": "正常仓位",
+                    "note": "技术面出买点 + 分析面同向，两边都指向做多，可正常仓位"}
+        if llm_reduce:
+            return {"label": "⚠️ 信号分歧", "conf": "低", "size": "不动",
+                    "note": "技术面像买点，但分析面倾向减仓——**先不动**，等一边被证伪再出手"}
+        if llm_watch:
+            return {"label": "🟡 半仓试", "conf": "中", "size": "半仓",
+                    "note": "技术面出买点，但分析面只到观望——**先用一半仓位试**，跌破止损立即走"}
+        return {"label": "🟡 半仓试", "conf": "中", "size": "半仓",
+                "note": "技术面出买点，分析面未明确反对，先用一半仓位试"}
+
+    if rule_action == ACTION_NEAR:
+        if llm_reduce:
+            return {"label": "⚠️ 信号分歧", "conf": "低", "size": "别买",
+                    "note": "技术面还没到买点，分析面又倾向减仓——**这时候别买**；持仓的按支撑位减"}
+        if llm_buy:
+            return {"label": "🟡 等触发", "conf": "中", "size": "到价再买",
+                    "note": "分析面看好，但技术位置还没到——**到触发价再买**，别提前"}
+        return {"label": "⏸ 等触发", "conf": "中", "size": "不动",
+                "note": "位置未到，等到触发价再说"}
+
+    if rule_action == ACTION_TRIM:
+        if llm_reduce:
+            return {"label": "🔴 减仓（共振）", "conf": "高", "size": "按价位减",
+                    "note": "技术面破位 + 分析面同向看空，按价位减仓"}
+        if llm_buy:
+            return {"label": "⚠️ 信号分歧", "conf": "低", "size": "倾向减",
+                    "note": "技术面已破位，但分析面看多——**风险优先，倾向减仓**，别赌反弹"}
+        return {"label": "🟠 减仓", "conf": "中", "size": "按价位减",
+                "note": "技术面破位，按价位减仓"}
+
+    return {"label": "", "conf": "", "size": "", "note": ""}
