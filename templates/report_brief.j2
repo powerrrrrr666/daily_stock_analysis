@@ -61,6 +61,19 @@
 {%- endif %}
 
 ---
+{%- if sector_items %}
+
+## 🔥 热门板块 · ETF 参考
+
+{%- for s in sector_items %}
+- **{{ s.concept }}**　{{ '%+.2f'|format(s.concept_pct) }}%（涨 {{ s.up }} / 跌 {{ s.dn }}）　→　**{{ s.etf_name }} {{ s.etf_code }}**　现价 {{ s.etf_price }}（{{ '%+.2f'|format(s.etf_pct) }}%）　{{ s.label }}
+  - {{ s.reason }}
+{%- endfor %}
+
+> 判断逻辑：板块热度 + ETF 自身趋势双重把关。**板块热但 ETF 跌破 20 日线时不建议参与**。单只 ETF 仓位建议 ≤ 总仓位 10%。
+{%- endif %}
+
+---
 {%- for e in enriched %}
 {%- set result = e.result %}
 {%- set dash = result.dashboard or {} %}
@@ -98,7 +111,7 @@
 {%- if attr.get('strongest_bearish_signal') %}{% set _ = duo.append('看空「' ~ clip(attr.get('strongest_bearish_signal'), 22) ~ '」') %}{% endif %}
 {%- if duo %}{% set _ = bullets.append('- **多空**：' ~ duo|join('　')) %}{% endif %}
 
-## {{ num_emoji[loop.index0] if loop.index0 < 10 else loop.index }} {{ e.stock_name }} {{ result.code }} ｜ {{ e.signal_text }}
+## {{ num_emoji[loop.index0] if loop.index0 < 10 else loop.index }} {{ e.stock_name }} {{ result.code }} ｜ {{ (signal_map or {}).get(result.code, {}).get('action') or e.signal_text }}
 
 现价 **{{ price or 'N/A' }}** 元{% if snap.get('pct_chg') %}（{{ snap.get('pct_chg') }}）{% endif %} ｜ 成交额 **{{ snap.get('amount') or 'N/A' }}** ｜ 换手率 {{ va.get('turnover_rate') or snap.get('turnover_rate') or 'N/A' }}% ｜ 振幅 {{ snap.get('amplitude') or 'N/A' }} ｜ 评分 {{ result.sentiment_score }}
 {%- set one_sentence = core.get('one_sentence') or result.analysis_summary %}
@@ -119,7 +132,8 @@
 {%- endif %}
 
 **怎么办**
-- 🆕 **空仓者** → {{ clip(pos_advice.get('no_position') or e.localized_operation_advice, 72) }}
+{%- set sig = (signal_map or {}).get(result.code) %}
+- 🆕 **空仓者** → {% if sig and sig.action in ('🟢 可买入', '🟡 等触发') %}{% if sig.action == '🟢 可买入' %}现价 **{{ sig.level }}** 附近可买{% if sig.stop %}，止损 **{{ sig.stop }}**{% endif %}{% else %}等触发价 **{{ sig.level }}** 再买{% if sig.stop %}，止损 **{{ sig.stop }}**{% endif %}{% endif %}{% else %}{{ clip(pos_advice.get('no_position') or e.localized_operation_advice, 72) }}{% endif %}
 - 💼 **持仓者** → {{ clip(pos_advice.get('has_position') or '继续持有，跌破关键支撑再减', 72) }}
 {%- set levels = [] %}
 {%- if sniper.get('ideal_buy') %}{% set _ = levels.append('理想买入 ' ~ clip(clean_sniper(sniper.get('ideal_buy')), 22)) %}{% endif %}

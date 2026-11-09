@@ -1985,6 +1985,16 @@ class NotificationService(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("操作信号扫描失败，报告将不含该栏目：%s: %s", type(exc).__name__, exc)
 
+            # 热门板块 + ETF 参考（东财概念排行 + 腾讯行情，失败不影响主报告）
+            sector_items: List[dict] = []
+            try:
+                from src.services.sectors import build_sector_picks
+
+                sector_items = build_sector_picks(top_n=5)
+                logger.info("热门板块：%s 个（已匹配 ETF）", len(sector_items))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("热门板块获取失败，报告将不含该栏目：%s: %s", type(exc).__name__, exc)
+
             # 走势预判 + 持仓做T建议（失败不影响主报告）
             forecasts: List[dict] = []
             forecast_map: Dict[str, dict] = {}
@@ -2017,6 +2027,20 @@ class NotificationService(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("持仓操作清单合并失败：%s: %s", type(exc).__name__, exc)
 
+            # 个股段与「操作信号」必须一致：
+            # 规则引擎给出明确动作（可买/等触发/该减）时，覆盖 LLM 的模糊表述。
+            # 2026-11-09 出现矛盾——操作信号写「买点 8.39」，个股段却写「观望」。
+            signal_map = {}
+            for _op in (opportunities or {}).get("actionable") or []:
+                _code = str(_op.get("code") or "")
+                if _code:
+                    signal_map[_code] = {
+                        "action": _op.get("action"),
+                        "level": _op.get("level"),
+                        "stop": _op.get("stop"),
+                        "reason": _op.get("reason"),
+                    }
+
             out = render(
                 platform='brief',
                 results=results,
@@ -2034,6 +2058,8 @@ class NotificationService(
                     "forecast_map": forecast_map,
                     "t_plans": t_plans,
                     "holdings_board": holdings_board,
+                    "signal_map": signal_map,
+                    "sector_items": sector_items,
                 },
             )
             if out:
