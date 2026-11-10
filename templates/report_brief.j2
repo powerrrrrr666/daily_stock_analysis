@@ -35,6 +35,14 @@
 - **{{ h.name }}**　{{ '%.2f'|format(h.cost) }}→{{ '%.2f'|format(h.price) }}{% if h.pnl_pct is not none %}（**{{ '%+.1f'|format(h.pnl_pct) }}%**{% if h.pnl_amount is not none %}，**{{ '%+.0f'|format(h.pnl_amount) }} 元**{% endif %}）{% endif %}{% if h.shares %}　{{ h.shares|int }}股{% endif %}　→ {{ h.next_action }}　｜ 补仓 {{ h.add_state }}　｜ 做T {{ h.t_verdict }}{% if h.t_line %}：{{ h.t_line }}{% endif %}
 {%- endfor %}
 {%- endif %}
+{%- if etf_rows %}
+
+**📊 ETF 持仓**
+{%- for x in etf_rows %}
+- **{{ x.name }} {{ x.code }}**　{{ '%.3f'|format(x.cost) }}→{{ '%.3f'|format(x.price) }}（**{{ '%+.2f'|format(x.pnl_pct) }}%**{% if x.pnl_amount is not none %}，**{{ '%+.0f'|format(x.pnl_amount) }} 元**{% endif %}）{% if x.shares %}　{{ x.shares|int }}份{% endif %}　{{ x.state }}
+  - {{ x.reason }}
+{%- endfor %}
+{%- endif %}
 
 {%- set groups = [
     ('🟢 可买入', '技术面出现买点'),

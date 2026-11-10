@@ -55,11 +55,12 @@ def _num(value: Any) -> Optional[float]:
         return None
 
 
-def load_positions(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
-    """读取 positions.json，返回 {归一化代码: {"name", "cost", "shares"}}。
+def _load_raw(path: Optional[Path], want_etf: bool) -> Dict[str, Dict[str, Any]]:
+    """读取 positions.json 并按「是否 ETF」过滤。
 
     shares 可缺失（视为未知股数），填了才能判断做T是否具备条件：
     A股买入须为 100 股整数倍，1/3 仓位不足 100 股时实际无法做T。
+    ETF 条目需带 "type": "etf"，个股流程会跳过它们（ETF 不在自选股里，没有 LLM 分析结果）。
     """
     if path is None:
         path = Path(__file__).resolve().parent.parent.parent / "positions.json"
@@ -77,6 +78,9 @@ def load_positions(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
             continue
         if not isinstance(value, dict):
             continue
+        is_etf = str(value.get("type") or "").strip().lower() == "etf"
+        if is_etf != want_etf:
+            continue
         cost = _num(value.get("cost"))
         if not cost or cost <= 0:
             continue
@@ -89,6 +93,16 @@ def load_positions(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
             "shares": _num(value.get("shares")),
         }
     return out
+
+
+def load_positions(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
+    """个股持仓（不含 ETF）。"""
+    return _load_raw(path, want_etf=False)
+
+
+def load_etf_positions(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
+    """ETF 持仓（positions.json 里 type=etf 的条目）。"""
+    return _load_raw(path, want_etf=True)
 
 
 def _extract_market(result: Any) -> Dict[str, Optional[float]]:

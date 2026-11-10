@@ -2057,9 +2057,60 @@ class NotificationService(
                     _fus = fuse_signal(_sig.get("action"), llm_advice.get(_code, ""))
                     _sig.update(_fus)
                     _sig["llm_text"] = llm_advice.get(_code, "")
+
+                # 持仓股的「买入」信号要受补仓条件约束，否则会和持仓行的「补仓 观察位」打架
+                # （2026-11-10 案例：中兴技术面可补 + LLM 买入 => 买入共振，但距压力位仅 1.4%，实际不该加）
+                hold_state = {
+                    str(r.get("code")): (r.get("state") or "")
+                    for r in (positions_rows or [])
+                }
+                for _code, _sig in signal_map.items():
+                    _st = hold_state.get(_code)
+                    if not _st:
+                        continue
+                    if _sig.get("label", "").startswith("🟢") and not _st.startswith("🟢"):
+                        _sig["label"] = "🟡 持有（别加仓）"
+                        _sig["conf"] = "中"
+                        _sig["size"] = "不加仓"
+                        _sig["note"] = f"技术面偏强，但补仓条件没满足（{_st}）——持有可以，别加仓"
+
                 logger.info("规则×LLM 信号融合完成：%s 只", len(signal_map))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("信号融合失败，退回规则引擎结论：%s: %s", type(exc).__name__, exc)
+
+            # 头部「买入/观望/减仓」统计改用融合结论。
+            # 否则会出现「头部买入 0、正文却写可买入」的自相矛盾（2026-11-10 用户反馈）。
+            counts_override: Dict[str, int] = {}
+            if any((v or {}).get("label") for v in signal_map.values()):
+                fused_buy = fused_sell = 0
+                for _r in results:
+                    _c = str(getattr(_r, "code", "") or "")
+                    _lab = (signal_map.get(_c) or {}).get("label") or ""
+                    if _lab.startswith("🟢") or _lab == "🟡 半仓试":
+                        fused_buy += 1
+                    elif _lab.startswith("🔴") or _lab.startswith("🟠"):
+                        fused_sell += 1
+                counts_override = {
+                    "buy_count": fused_buy,
+                    "sell_count": fused_sell,
+                    "hold_count": max(0, len(results) - fused_buy - fused_sell),
+                }
+                logger.info(
+                    "头部统计（按融合结论）：买入 %s / 观望 %s / 减仓 %s",
+                    fused_buy, counts_override["hold_count"], fused_sell,
+                )
+
+            # ETF 持仓（positions.json 里 type=etf 的条目，独立取数，不进 LLM 流程）
+            etf_rows: List[dict] = []
+            try:
+                from src.services.positions import load_etf_positions
+                from src.services.sectors import build_etf_positions
+
+                etf_rows = build_etf_positions(load_etf_positions())
+                if etf_rows:
+                    logger.info("ETF 持仓：%s 只", len(etf_rows))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ETF 持仓计算失败：%s: %s", type(exc).__name__, exc)
 
             out = render(
                 platform='brief',
@@ -2080,6 +2131,8 @@ class NotificationService(
                     "holdings_board": holdings_board,
                     "signal_map": signal_map,
                     "sector_items": sector_items,
+                    "etf_rows": etf_rows,
+                    **counts_override,
                 },
             )
             if out:

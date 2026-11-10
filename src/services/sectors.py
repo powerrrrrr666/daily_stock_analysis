@@ -230,3 +230,108 @@ def build_sector_picks(top_n: int = 5) -> List[Dict[str, Any]]:
             "reason": reason,
         })
     return rows
+
+
+# ---------------------------------------------------------------- ETF 持仓
+def _etf_detail(code: str) -> Optional[Dict[str, Any]]:
+    """取 ETF 的现价、涨跌幅、MA5/MA20、20 日高低。"""
+    prefix = "sh" if code.startswith(("5", "6")) else "sz"
+    try:
+        txt = _get_gbk(f"https://qt.gtimg.cn/q={prefix}{code}")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[ETF持仓] %s 行情失败：%s", code, exc)
+        return None
+
+    price = pct = name = None
+    for block in txt.split(";"):
+        block = block.strip()
+        if "=" not in block:
+            continue
+        payload = block.split('"')
+        if len(payload) < 2:
+            continue
+        v = payload[1].split("~")
+        if len(v) < 33:
+            continue
+        name = v[1]
+        try:
+            price = float(v[3])
+            pct = float(v[32])
+        except (TypeError, ValueError):
+            continue
+        break
+    if not price:
+        return None
+
+    ma5 = ma20 = low20 = high20 = None
+    try:
+        raw = _get(
+            f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,60,qfq"
+        )
+        d = json.loads(raw)
+        node = ((d.get("data") or {}).get(prefix + code) or {})
+        rows = node.get("qfqday") or node.get("day") or []
+        closes = [float(r[2]) for r in rows]
+        highs = [float(r[3]) for r in rows]
+        lows = [float(r[4]) for r in rows]
+        if len(closes) >= 20:
+            ma5 = round(sum(closes[-5:]) / 5, 4)
+            ma20 = round(sum(closes[-20:]) / 20, 4)
+            low20 = round(min(lows[-20:]), 4)
+            high20 = round(max(highs[-20:]), 4)
+    except Exception:  # noqa: BLE001
+        pass
+
+    return {"name": name, "price": price, "pct": pct, "ma5": ma5,
+            "ma20": ma20, "low20": low20, "high20": high20}
+
+
+def _etf_advice(price: float, cost: float, ma5, ma20, low20) -> Tuple[str, str]:
+    pnl = (price / cost - 1) * 100
+    if low20 and price < low20 * 1.005:
+        return "🔴 破位", f"已跌到 20 日低点 {low20} 附近，属于破位，反弹减仓别补"
+    if ma20 and price < ma20:
+        gap = (price / ma20 - 1) * 100
+        return "🟡 等站回", f"现价在 20 日线 {ma20} 下方（{gap:.1f}%），趋势未修复，站回 {ma20} 才算转强"
+    if pnl <= -8 and ma5 and price > ma5:
+        return "🟢 可小批补", f"浮亏 {abs(pnl):.1f}%，已站上 5 日线 {ma5}，可小批补（不超原仓位 1/3）"
+    if ma20 and price >= ma20:
+        gap = (price / ma20 - 1) * 100
+        return "🟢 持有", f"站上 20 日线 {ma20}（+{gap:.1f}%），趋势正常，持有；跌破 {ma20} 再减"
+    return "🟡 观察", f"浮亏 {pnl:.1f}%，均线数据不足，先观察"
+
+
+def build_etf_positions(etf_positions: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """ETF 持仓 -> 现价/浮盈亏/操作建议。失败返回空列表，不影响主报告。"""
+    rows: List[Dict[str, Any]] = []
+    for code, info in (etf_positions or {}).items():
+        try:
+            detail = _etf_detail(code)
+            if not detail:
+                continue
+            cost = float(info.get("cost") or 0)
+            shares = info.get("shares")
+            if cost <= 0:
+                continue
+            price = detail["price"]
+            pnl = (price / cost - 1) * 100
+            state, reason = _etf_advice(price, cost, detail.get("ma5"),
+                                        detail.get("ma20"), detail.get("low20"))
+            rows.append({
+                "code": code,
+                "name": info.get("name") or detail.get("name") or code,
+                "cost": cost,
+                "shares": shares,
+                "price": price,
+                "pct": detail.get("pct"),
+                "pnl_pct": round(pnl, 2),
+                "pnl_amount": round((price - cost) * shares, 0) if shares else None,
+                "ma5": detail.get("ma5"),
+                "ma20": detail.get("ma20"),
+                "state": state,
+                "reason": reason,
+            })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[ETF持仓] %s 计算失败：%s", code, exc)
+            continue
+    return rows
