@@ -113,10 +113,13 @@ jobs:
           LITELLM_CONFIG: ${{ vars.LITELLM_CONFIG || secrets.LITELLM_CONFIG }}
           LITELLM_CONFIG_YAML: ${{ vars.LITELLM_CONFIG_YAML || secrets.LITELLM_CONFIG_YAML }}
           LITELLM_API_KEY: ${{ secrets.LITELLM_API_KEY }}
-          LITELLM_MODEL: ${{ vars.LITELLM_MODEL || secrets.LITELLM_MODEL }}
-          # 主模型失败时的跨模型兜底：deepseek-v4-pro 为推理模型，长提示词下
-          # 思考过程会挤占输出预算，偶发「JSON 被截断」导致个别个股分析失败。
-          # 兜底用 flash（推理 token 消耗更少、JSON 更稳），避免个股整只丢失。
+          # 主模型：2026-11-10 用户要求改用 flash（成本约为 pro 的 1/5~1/10）。
+          # 注意这里用新变量 LITELLM_MODEL_OVERRIDE，**刻意不再读 LITELLM_MODEL**——
+          # 仓库里原有的 LITELLM_MODEL=pro 会继续存在，但不再生效。
+          # 想换回来：把下面的默认值改成 deepseek/deepseek-v4-pro，
+          # 或新增仓库变量 LITELLM_MODEL_OVERRIDE=deepseek/deepseek-v4-pro。
+          LITELLM_MODEL: ${{ vars.LITELLM_MODEL_OVERRIDE || 'deepseek/deepseek-v4-flash' }}
+          # 兜底：主模型已是 flash，兜底保持 flash（同一模型重试，避免意外跳到更贵的 pro）
           LITELLM_FALLBACK_MODELS: ${{ vars.LITELLM_FALLBACK_MODELS || secrets.LITELLM_FALLBACK_MODELS || 'deepseek/deepseek-v4-flash' }}
           AGENT_LITELLM_MODEL: ${{ vars.AGENT_LITELLM_MODEL || secrets.AGENT_LITELLM_MODEL }}
           VISION_MODEL: ${{ vars.VISION_MODEL || secrets.VISION_MODEL }}
