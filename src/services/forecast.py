@@ -87,7 +87,9 @@ def _market(result: Any) -> Dict[str, Optional[float]]:
 
 
 # ---------------------------------------------------------------- 走势预判
-def _forecast_one(price: float, market: Dict[str, Optional[float]]) -> Dict[str, Any]:
+def _forecast_one(price: float, market: Dict[str, Optional[float]], digits: int = 2) -> Dict[str, Any]:
+    """digits：价格小数位。个股 2 位，ETF 3 位（0.549 这种价位四舍五入到 2 位会失真）。"""
+    d = digits
     ma5, ma10, ma20 = market.get("ma5"), market.get("ma10"), market.get("ma20")
     support, resistance = market.get("support"), market.get("resistance")
     vol_ratio, pct_chg = market.get("volume_ratio"), market.get("pct_chg")
@@ -143,39 +145,42 @@ def _forecast_one(price: float, market: Dict[str, Optional[float]]) -> Dict[str,
     if bias == "偏强":
         range_low = ma5 or support
         range_high = resistance
-        note = (
-            f"预计未来 3~5 个交易日在 **{round(range_low,2) if range_low else '—'}~{round(range_high,2) if range_high else '—'}** "
-            f"区间内偏强运行；**放量站上 {round(range_high,2) if range_high else '—'} 打开上行空间**，"
-            f"跌破 {round(range_low,2) if range_low else '—'}（MA5）则转弱"
-        )
     elif bias == "偏弱":
         range_low = support
         range_high = ma5
-        note = (
-            f"预计未来 3~5 个交易日在 **{round(range_low,2) if range_low else '—'}~{round(range_high,2) if range_high else '—'}** "
-            f"区间内弱势整理；**站上 {round(range_high,2) if range_high else '—'}（MA5）才算止跌**，"
-            f"跌破 {round(range_low,2) if range_low else '—'} 加速下跌"
-        )
     else:
         range_low, range_high = support, resistance
+
+    lo = f"{round(range_low, d)}" if range_low else "—"
+    hi = f"{round(range_high, d)}" if range_high else "—"
+
+    if bias == "偏强":
         note = (
-            f"预计在 **{round(range_low,2) if range_low else '—'}~{round(range_high,2) if range_high else '—'}** "
-            f"区间内震荡；方向选择看能否站上 {round(range_high,2) if range_high else '—'} 或跌破 "
-            f"{round(range_low,2) if range_low else '—'}"
+            f"预计未来 3~5 个交易日在 **{lo}~{hi}** 区间内偏强运行；"
+            f"**放量站上 {hi} 打开上行空间**，跌破 {lo}（MA5）则转弱"
+        )
+    elif bias == "偏弱":
+        note = (
+            f"预计未来 3~5 个交易日在 **{lo}~{hi}** 区间内弱势整理；"
+            f"**站上 {hi}（MA5）才算止跌**，跌破 {lo} 加速下跌"
+        )
+    else:
+        note = (
+            f"预计在 **{lo}~{hi}** 区间内震荡；方向选择看能否站上 {hi} 或跌破 {lo}"
         )
 
     return {
         "bias": f"{emoji} {bias}",
         "score": round(score, 1),
-        "range_low": round(range_low, 2) if range_low else None,
-        "range_high": round(range_high, 2) if range_high else None,
+        "range_low": round(range_low, d) if range_low else None,
+        "range_high": round(range_high, d) if range_high else None,
         "note": note,
         "basis": " ｜ ".join(basis[:4]),
     }
 
 
-def build_forecasts(results: List[Any]) -> List[Dict[str, Any]]:
-    """对每只票给出未来走势预判。"""
+def build_forecasts(results: List[Any], digits: int = 2) -> List[Dict[str, Any]]:
+    """对每只票给出未来走势预判。ETF 走另建入口（sectors.build_etf_positions）。"""
     rows: List[Dict[str, Any]] = []
     for result in results or []:
         market = _market(result)
@@ -183,14 +188,14 @@ def build_forecasts(results: List[Any]) -> List[Dict[str, Any]]:
         if not price:
             continue
         try:
-            forecast = _forecast_one(price, market)
+            forecast = _forecast_one(price, market, digits=digits)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[走势预判] %s 计算失败：%s", getattr(result, "code", ""), exc)
             continue
         rows.append({
             "code": _norm_code(getattr(result, "code", "")),
             "name": getattr(result, "name", "") or "",
-            "price": round(price, 2),
+            "price": round(price, digits),
             **forecast,
         })
     # 偏强在前，偏弱在后
@@ -200,16 +205,27 @@ def build_forecasts(results: List[Any]) -> List[Dict[str, Any]]:
 
 # ---------------------------------------------------------------- 做T建议
 def _t_plan_one(price: float, cost: float, market: Dict[str, Optional[float]],
-                shares: Optional[float] = None) -> Dict[str, Any]:
+                shares: Optional[float] = None, digits: int = 2,
+                min_amp: float = MIN_AMPLITUDE_FOR_T,
+                surge_pct: float = 9.5,
+                unit: str = "股") -> Dict[str, Any]:
+    """做T计划。digits / min_amp / surge_pct / unit 用于适配 ETF：
+
+    - ETF 报价三位小数（0.549），按 2 位四舍五入价位会算错
+    - ETF 免印花税、佣金低，做T摩擦成本低于个股，振幅门槛可适当放宽
+    - ETF 日内涨 6% 已属单边极端，沿用个股的 9.5% 永远不触发
+    - 份额单位是「份」而不是「股」
+    """
+    d = digits
     ma5, ma20 = market.get("ma5"), market.get("ma20")
     support, resistance = market.get("support"), market.get("resistance")
     amp, pct_chg = market.get("amplitude"), market.get("pct_chg")
 
-    base = {"price": round(price, 2), "cost": cost,
+    base = {"price": round(price, d), "cost": cost,
             "pnl_pct": round((price / cost - 1) * 100, 2),
             "amplitude": round(amp, 2) if amp is not None else None}
 
-    # 0) 计算本次可做T的股数：必须是 100 股整数倍，且不超过总仓位 1/3
+    # 0) 计算本次可做T的数量：必须是 100 整数倍，且不超过总仓位 1/3
     #    例：400 股 -> 1/3 = 133 股 -> 向下取整为 100 股（不是 133）
     t_shares = None
     ratio = T_RATIO
@@ -219,63 +235,63 @@ def _t_plan_one(price: float, cost: float, market: Dict[str, Optional[float]],
             one_third = int(shares * T_RATIO)
             return {**base, "verdict": T_NO, "sell_at": None, "buy_at": None, "saving": None,
                     "t_shares": 0,
-                    "reason": f"仅持 {int(shares)} 股，1/3 只有 {one_third} 股——A股买入必须是 100 股整数倍，"
-                              f"卖了买不回等量，做T在物理上不成立。"
-                              f"要么把仓位补到 {MIN_SHARES_FOR_T} 股以上，要么直接不动"}
+                    "reason": f"仅持 {int(shares)} {unit}，1/3 只有 {one_third} {unit}——"
+                              f"买卖必须 100 {unit}起，卖了买不回等量，做T在物理上不成立。"
+                              f"要么把仓位补到 {MIN_SHARES_FOR_T} {unit}以上，要么直接不动"}
         t_shares = lot
         ratio = lot / shares
     base["t_shares"] = t_shares
     base["t_ratio_pct"] = round(ratio * 100)
 
     # 1) 振幅不够 —— 空间被摩擦成本吃掉
-    if amp is not None and amp < MIN_AMPLITUDE_FOR_T:
+    if amp is not None and amp < min_amp:
         return {**base, "verdict": T_NO, "sell_at": None, "buy_at": None, "saving": None,
                 "reason": f"今日振幅仅 {amp:.1f}%，做T空间不够（价差会被手续费和滑点吃掉），等波动放大再做"}
 
     # 2) 破位单边下跌 —— 越 T 越低
     if support and price < support:
         return {**base, "verdict": T_FORBID_BREAK, "sell_at": None, "buy_at": None, "saving": None,
-                "reason": f"已跌破 20 日支撑 {support}，属于单边下跌，做T容易越做越低，先处理仓位别急着摊薄"}
+                "reason": f"已跌破 支撑位 {support}，属于单边下跌，做T容易越做越低，先处理仓位别急着摊薄"}
 
     # 2b) 当日大跌且贴着支撑 —— 破位下杀，此时"低吸"就是接刀
     if pct_chg is not None and pct_chg <= -2.0 and support and price > 0:
         dist_sup_now = (price / support - 1) * 100
         if dist_sup_now <= NEAR_LEVEL_PCT + 0.5:
             return {**base, "verdict": T_FORBID_BREAK, "sell_at": None, "buy_at": None, "saving": None,
-                    "reason": f"当日跌 {pct_chg:.1f}% 且已贴到 20 日支撑 {support}（距 {dist_sup_now:.1f}%），"
+                    "reason": f"当日跌 {pct_chg:.1f}% 且已贴到支撑位 {support}（距 {dist_sup_now:.1f}%），"
                               f"属于破位下杀，此时低吸等于接刀——**等出现放量止跌阳线再做**"}
 
-    # 3) 涨停 / 接近涨停 —— 卖出容易 T 飞
-    if pct_chg is not None and pct_chg >= 9.5:
+    # 3) 涨停 / 单边强势 —— 卖出容易 T 飞
+    if pct_chg is not None and pct_chg >= surge_pct:
         return {**base, "verdict": T_FORBID_SURGE, "sell_at": None, "buy_at": None, "saving": None,
-                "reason": "接近涨停，单边强势，做T卖出容易接不回来，宁可不动"}
+                "reason": f"当日涨 {pct_chg:.1f}%，接近涨停/单边强势，做T卖出容易接不回来，宁可不动"}
 
     # 4) 贴压力位且当日上涨 → 高抛
     if resistance and price > 0:
         dist_res = (resistance / price - 1) * 100
         if dist_res <= NEAR_LEVEL_PCT and (pct_chg is None or pct_chg >= 0):
-            sell_at = round(resistance, 2)
-            buy_back = round(ma5, 2) if ma5 and ma5 < sell_at else round(price * 0.98, 2)
-            saving = round((sell_at - buy_back) * ratio, 3)
-            qty = f"{t_shares} 股" if t_shares else f"{int(ratio * 100)}% 仓位"
+            sell_at = round(resistance, d)
+            buy_back = round(ma5, d) if ma5 and ma5 < sell_at else round(price * 0.98, d)
+            saving = round((sell_at - buy_back) * ratio, d + 1)
+            qty = f"{t_shares} {unit}" if t_shares else f"{int(ratio * 100)}% 仓位"
             return {**base, "verdict": T_BUY_HIGH, "sell_at": sell_at, "buy_at": buy_back,
                     "saving": saving,
-                    "reason": f"距压力位 {resistance} 仅 {dist_res:.1f}%，可先卖 {qty}；"
-                              f"回落到 {buy_back}（MA5 附近）买回，成本约降 {saving} 元/股。"
+                    "reason": f"距压力位 {round(resistance, d)} 仅 {dist_res:.1f}%，可先卖 {qty}；"
+                              f"回落到 {buy_back}（MA5 附近）买回，成本约降 {saving} 元/{unit}。"
                               f"若放量突破 {sell_at} 不回落，就别急着买回（防止 T 飞）"}
 
     # 5) 贴支撑位且当日下跌 → 低吸
     if support and price > 0:
         dist_sup = (price / support - 1) * 100
         if dist_sup <= NEAR_LEVEL_PCT and (pct_chg is None or pct_chg <= 0):
-            buy_at = round(support, 2)
-            sell_back = round(ma5, 2) if ma5 and ma5 > buy_at else round(price * 1.02, 2)
-            saving = round((sell_back - buy_at) * ratio, 3)
-            qty = f"{t_shares} 股" if t_shares else f"{int(ratio * 100)}% 仓位"
+            buy_at = round(support, d)
+            sell_back = round(ma5, d) if ma5 and ma5 > buy_at else round(price * 1.02, d)
+            saving = round((sell_back - buy_at) * ratio, d + 1)
+            qty = f"{t_shares} {unit}" if t_shares else f"{int(ratio * 100)}% 仓位"
             return {**base, "verdict": T_BUY_LOW, "buy_at": buy_at, "sell_at": sell_back,
                     "saving": saving,
-                    "reason": f"距 20 日支撑 {support} 仅 {dist_sup:.1f}%，可先买 {qty}；"
-                              f"反弹到 {sell_back}（MA5 附近）卖出，成本约降 {saving} 元/股。"
+                    "reason": f"距支撑位 {round(support, d)} 仅 {dist_sup:.1f}%，可先买 {qty}；"
+                              f"反弹到 {sell_back}（MA5 附近）卖出，成本约降 {saving} 元/{unit}。"
                               f"若跌破 {buy_at} 就别买第二笔（防止越 T 越低）"}
 
     # 6) 中间地带 —— 边界不清
@@ -283,8 +299,12 @@ def _t_plan_one(price: float, cost: float, market: Dict[str, Optional[float]],
             "reason": "现价处在支撑与压力中间，边界不清，做T容易两头挨打，等靠近某一边再做"}
 
 
-def build_t_plans(results: List[Any], positions: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
-    """只对**有成本价的持仓股**给出做T建议。"""
+def build_t_plans(results: List[Any], positions: Optional[Dict[str, Dict[str, Any]]] = None,
+                  **kwargs: Any) -> List[Dict[str, Any]]:
+    """只对**有成本价的持仓股**给出做T建议。
+
+    kwargs 透传给 ``_t_plan_one``（digits / min_amp / surge_pct / unit），ETF 用另一套阈值。
+    """
     positions = positions or {}
     if not positions:
         return []
@@ -304,7 +324,7 @@ def build_t_plans(results: List[Any], positions: Optional[Dict[str, Dict[str, An
         if not price or not cost:
             continue
         try:
-            plan = _t_plan_one(price, cost, market, info.get("shares"))
+            plan = _t_plan_one(price, cost, market, info.get("shares"), **kwargs)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[做T建议] %s 计算失败：%s", code, exc)
             continue
@@ -323,10 +343,46 @@ def build_t_plans(results: List[Any], positions: Optional[Dict[str, Dict[str, An
 
 
 # ---------------------------------------------------------------- 持仓操作清单
+def _fmt(value: Optional[float], digits: int = 2) -> str:
+    return f"{round(value, digits)}" if value else "—"
+
+
+def build_next_action(add_state: str, price: Optional[float],
+                      ma5: Optional[float], support: Optional[float],
+                      resistance: Optional[float],
+                      opp: Optional[Dict[str, Any]] = None,
+                      digits: int = 2) -> str:
+    """由「补仓状态 + 均线位置」推导出接下来该做什么。
+
+    个股与 ETF 共用同一套口径，避免两边给出互相矛盾的结论。
+    """
+    opp = opp or {}
+    sup = _fmt(support, digits)
+    ma5s = _fmt(ma5, digits)
+
+    if opp.get("action") == "🟠 该减仓" and opp.get("level"):
+        return f"反弹到 **{opp['level']}** 附近减仓"
+    if add_state.startswith("🔴"):
+        return f"已跌破支撑 **{sup}**，反弹减仓为主，**别补**"
+    if add_state.startswith("🟢"):
+        return "可在现价附近补第一笔（不超过原仓位 1/3）"
+    if add_state.startswith("🟡"):
+        if ma5 and price and price > ma5:
+            if resistance:
+                return (f"等突破 **{_fmt(resistance * 1.005, digits)}** 或回踩 **{ma5s}**（MA5）再补；"
+                        f"跌破 **{sup}** 减仓")
+            return f"等回踩 **{ma5s}**（MA5）再补；跌破 **{sup}** 减仓"
+        level = f"**{ma5s}**（MA5）" if ma5 else "关键均线"
+        return f"等站上{level}再补；跌破 **{sup}** 减仓"
+    return f"暂不加仓；跌破 **{sup}** 减仓"
+
+
 def build_holdings_board(positions_map: Optional[Dict[str, Dict[str, Any]]],
                          positions_rows: Optional[List[Dict[str, Any]]],
                          t_plans: Optional[List[Dict[str, Any]]],
-                         opportunities: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+                         opportunities: Optional[Dict[str, Any]],
+                         digits: int = 2,
+                         unit: str = "股") -> List[Dict[str, Any]]:
     """把「接下来的操作 / 补仓判断 / 做T建议」合并成每只持仓股一条清单。"""
     positions_map = positions_map or {}
     if not positions_map:
@@ -344,40 +400,22 @@ def build_holdings_board(positions_map: Optional[Dict[str, Dict[str, Any]]],
             continue
         add_state = p.get("state") or "⚪ 数据不足"
         add_reason = p.get("reason") or ""
-        ma5_level = p.get("ma5")
-        sup_level = p.get("support")
         opp = opp_by_code.get(code) or {}
 
-        if opp.get("action") == "🟠 该减仓" and opp.get("level"):
-            next_action = f"反弹到 **{opp['level']}** 附近减仓"
-        elif add_state.startswith("🔴"):
-            next_action = f"已跌破支撑 **{sup_level or '—'}**，反弹减仓为主，**别补**"
-        elif add_state.startswith("🟢"):
-            next_action = "可在现价附近补第一笔（不超过原仓位 1/3）"
-        elif add_state.startswith("🟡"):
-            if ma5_level and price and price > ma5_level:
-                # 已经在 MA5 上方 → 卡住补仓的是压力位，不是 MA5
-                res_level = p.get("resistance")
-                if res_level:
-                    next_action = (f"等突破 **{round(res_level * 1.005, 2)}** 或回踩 **{ma5_level}**（MA5）再补；"
-                                   f"跌破 **{sup_level or '—'}** 减仓")
-                else:
-                    next_action = f"等回踩 **{ma5_level}**（MA5）再补；跌破 **{sup_level or '—'}** 减仓"
-            else:
-                level = f"**{ma5_level}**（MA5）" if ma5_level else "关键均线"
-                next_action = f"等站上 {level} 再补；跌破 **{sup_level or '—'}** 减仓"
-        else:
-            next_action = f"暂不加仓；跌破 **{sup_level or '—'}** 减仓"
+        next_action = build_next_action(
+            add_state, price, p.get("ma5"), p.get("support"),
+            p.get("resistance"), opp, digits=digits,
+        )
 
         t = t_by_code.get(code) or {}
         t_verdict = t.get("verdict") or "⚪ 无数据"
         t_line = ""
         if t.get("side") == "high" and t.get("sell_at") and t.get("buy_at"):
             t_line = (f"先卖 **{t['sell_at']}** → 回落到 **{t['buy_at']}** 买回，"
-                      f"成本约降 **{t['saving']} 元/股**")
+                      f"成本约降 **{t['saving']} 元/{unit}**")
         elif t.get("side") == "low" and t.get("buy_at") and t.get("sell_at"):
             t_line = (f"先买 **{t['buy_at']}** → 反弹到 **{t['sell_at']}** 卖出，"
-                      f"成本约降 **{t['saving']} 元/股**")
+                      f"成本约降 **{t['saving']} 元/{unit}**")
 
         rows.append({
             "code": code,

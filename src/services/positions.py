@@ -6,7 +6,7 @@
 
 判断原则（**只做减风险的建议，不做加杠杆的鼓动**）：
 1. 浮亏太小（< 8%）→ 不建议补，摊薄效果有限，留着子弹。
-2. **已跌破 20 日支撑 → 明确劝阻**，跌破支撑后补仓等于接刀。
+2. **已跌破 支撑位 → 明确劝阻**，跌破支撑后补仓等于接刀。
 3. 浮亏 ≥ 8% 且距支撑 ≤ 3% → 「已到观察位」，但必须等止跌确认（放量阳线或站回 MA5）。
 4. 浮亏 ≥ 8% 且已站上 MA5 → 「可小批补」，说明已脱离最低点。
 5. 其余 → 「观察中」，等企稳信号。
@@ -125,24 +125,38 @@ def _extract_market(result: Any) -> Dict[str, Optional[float]]:
     }
 
 
+def _fmt(value: Optional[float], digits: int = 2) -> str:
+    return f"{round(value, digits)}" if value else "—"
+
+
 def _evaluate(price: float, cost: float, ma5: Optional[float],
               ma10: Optional[float], ma20: Optional[float],
               support: Optional[float],
-              resistance: Optional[float] = None) -> Dict[str, Any]:
-    """产出补仓判断：state / reason / dist_support / pnl_pct。"""
+              resistance: Optional[float] = None,
+              digits: int = 2,
+              min_loss: float = MIN_LOSS_FOR_ADD) -> Dict[str, Any]:
+    """产出补仓判断：state / reason / dist_support / pnl_pct。
+
+    digits：价格小数位。个股 2 位，ETF 3 位（0.549 这类价位按 2 位算会把关键位置说错）。
+    min_loss：浮亏达到多少才谈补仓。ETF 波动小，用 5% 比个股的 8% 更贴合实际。
+    """
     pnl = (price / cost - 1.0) * 100.0
     dist_sup = (price / support - 1.0) * 100.0 if support else None
     dist_res = (resistance / price - 1.0) * 100.0 if resistance else None
 
     base = {"pnl_pct": round(pnl, 2), "dist_support": round(dist_sup, 2) if dist_sup is not None else None}
+    sup = _fmt(support, digits)
 
     # 1) 已破支撑 —— 最强否决
     if dist_sup is not None and dist_sup < BREAK_SUPPORT_PCT:
         return {**base, "state": STATE_DANGER,
-                "reason": f"已跌破 20 日支撑 {support}，此时补仓等于接刀。等重新站回支撑、或到更低的明确止跌位再考虑"}
+                "reason": f"已跌破支撑位 {sup}，此时补仓等于接刀。等重新站回支撑、或到更低的明确止跌位再考虑"}
 
-    # 2) 浮亏太小，不值得补
-    if pnl > -MIN_LOSS_FOR_ADD:
+    # 2) 亏损不够 / 已在盈利，都不值得补
+    if pnl > -min_loss:
+        if pnl >= 0:
+            return {**base, "state": STATE_HOLD,
+                    "reason": f"当前浮盈 {pnl:.1f}%，没有摊薄需求——在这个位置加仓只会抬高成本，不建议"}
         return {**base, "state": STATE_HOLD,
                 "reason": f"浮亏仅 {abs(pnl):.1f}%，补仓摊薄效果有限，建议留着子弹等更低位"}
 
@@ -151,7 +165,8 @@ def _evaluate(price: float, cost: float, ma5: Optional[float],
     #      「一边说该减仓、一边说可小批补」的矛盾（2026-11-05 高德红外实例）
     if ma5 and ma10 and ma20 and ma5 < ma10 and price < ma20:
         return {**base, "state": STATE_WATCH,
-                "reason": f"MA5({ma5}) 已下穿 MA10({ma10})、现价仍在 MA20({ma20}) 下方，"
+                "reason": f"MA5({_fmt(ma5, digits)}) 已下穿 MA10({_fmt(ma10, digits)})、"
+                          f"现价仍在 MA20({_fmt(ma20, digits)}) 下方，"
                           f"趋势尚未修复——**这时候补仓是在下跌途中接刀**；"
                           f"等站上 MA20 且均线重新多头再谈"}
 
@@ -160,11 +175,11 @@ def _evaluate(price: float, cost: float, ma5: Optional[float],
     if ma5 and price > ma5:
         if dist_res is not None and 0 <= dist_res <= NEAR_RESISTANCE_PCT:
             return {**base, "state": STATE_WATCH,
-                    "reason": f"浮亏 {abs(pnl):.1f}%，虽已站上 MA5({ma5})，"
-                              f"但距 20 日压力位 {resistance} 仅 {dist_res:.1f}%——现在补空间太小；"
-                              f"**等放量突破并站稳 {round(resistance * 1.005, 2)} 再补**，或等回踩 MA5 附近"}
+                    "reason": f"浮亏 {abs(pnl):.1f}%，虽已站上 MA5({_fmt(ma5, digits)})，"
+                              f"但距 20 日压力位 {_fmt(resistance, digits)} 仅 {dist_res:.1f}%——现在补空间太小；"
+                              f"**等放量突破并站稳 {_fmt(resistance * 1.005, digits)} 再补**，或等回踩 MA5 附近"}
         return {**base, "state": STATE_ADD,
-                "reason": f"浮亏 {abs(pnl):.1f}%，且已站上 MA5({ma5})，脱离近期最低点，可小批补（不超过原仓位的 1/3）"}
+                "reason": f"浮亏 {abs(pnl):.1f}%，且已站上 MA5({_fmt(ma5, digits)})，脱离近期最低点，可小批补（不超过原仓位的 1/3）"}
 
     # 4) 贴近支撑 → 观察位
     if dist_sup is not None and dist_sup <= NEAR_SUPPORT_PCT:
@@ -172,11 +187,11 @@ def _evaluate(price: float, cost: float, ma5: Optional[float],
         if dist_sup <= 2.0:
             tight = "（已贴在支撑上，一旦跌破就是新一轮下跌，**现在抢补极易被埋**）"
         return {**base, "state": STATE_WATCH,
-                "reason": f"浮亏 {abs(pnl):.1f}%，距 20 日支撑 {support} 仅 {dist_sup:.1f}%{tight}；"
+                "reason": f"浮亏 {abs(pnl):.1f}%，距支撑位 {sup} 仅 {dist_sup:.1f}%{tight}；"
                           f"**必须等止跌确认**（放量阳线收复 MA5，或连续 2 日不破支撑）才可分批，别抢"}
 
     # 5) 其余
-    detail = f"距 20 日支撑还有 {dist_sup:.1f}% 空间" if dist_sup is not None else "支撑位未知"
+    detail = f"距支撑位还有 {dist_sup:.1f}% 空间" if dist_sup is not None else "支撑位未知"
     return {**base, "state": STATE_WATCH,
             "reason": f"浮亏 {abs(pnl):.1f}%，但未站上 MA5，{detail}，未到补仓时机，等企稳信号"}
 

@@ -24,7 +24,7 @@
 
 ---
 
-{%- if holdings_board or (opportunities and opportunities.actionable) %}
+{%- if holdings_board or etf_rows or (opportunities and opportunities.actionable) %}
 
 ## {{ signal_heading or '🎯 操作信号' }}
 
@@ -39,8 +39,10 @@
 
 **📊 ETF 持仓**
 {%- for x in etf_rows %}
-- **{{ x.name }} {{ x.code }}**　{{ '%.3f'|format(x.cost) }}→{{ '%.3f'|format(x.price) }}（**{{ '%+.2f'|format(x.pnl_pct) }}%**{% if x.pnl_amount is not none %}，**{{ '%+.0f'|format(x.pnl_amount) }} 元**{% endif %}）{% if x.shares %}　{{ x.shares|int }}份{% endif %}　{{ x.state }}
-  - {{ x.reason }}
+- **{{ x.name }} {{ x.code }}**{% if x.pct is not none %}　今日 {{ '%+.2f'|format(x.pct) }}%{% endif %}　{{ '%.3f'|format(x.cost) }}→{{ '%.3f'|format(x.price) }}（**{{ '%+.2f'|format(x.pnl_pct) }}%**{% if x.pnl_amount is not none %}，**{{ '%+.2f'|format(x.pnl_amount) }} 元**{% endif %}）{% if x.shares %}　{{ x.shares|int }}份{% endif %}　→ {{ x.next_action }}　｜ 补仓 {{ x.state }}　｜ 做T {{ x.t_verdict }}{% if x.t_line %}：{{ x.t_line }}{% endif %}
+  - 📈 **走势**：{{ x.fc_bias }}　{{ x.fc_note }}{% if x.fc_basis %}（依据：{{ x.fc_basis }}）{% endif %}
+  - 💰 **补仓**：{{ x.reason }}
+  - 🔄 **做T**：{{ x.t_reason }}
 {%- endfor %}
 {%- endif %}
 
@@ -65,7 +67,7 @@
 **⚪ 暂无信号**：{{ opportunities.none_names|join('、') }}——今天不用动。
 {%- endif %}
 
-> 做T需振幅 ≥2.5%；破位下跌或涨停时不做T。补仓铁律：跌破支撑不补。
+> 做T需振幅 ≥2.5%（ETF ≥1.5%，免印花税、摩擦成本更低）；破位下跌或单边强势时不做T。补仓铁律：跌破支撑不补。
 {%- endif %}
 {%- if sector_items %}
 
