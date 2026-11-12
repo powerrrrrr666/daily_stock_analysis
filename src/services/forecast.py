@@ -40,6 +40,19 @@ T_NO = "⏸ 暂不做T"
 T_FORBID_BREAK = "⚠️ 不宜做T（单边下跌）"
 T_FORBID_SURGE = "⚠️ 不宜做T（单边上涨）"
 
+# 止盈参数
+# 浮盈达到该比例就先减一批落袋为安。个股 15%、ETF 10%——ETF 波动只有个股六七成，
+# 用同一个门槛会等于永远不止盈。
+TP_MIN_GAIN = 15.0
+TP_MIN_GAIN_ETF = 10.0
+# 减仓比例：一次 1/3，剩下的让利润奔跑，跌破 MA10 再走
+TP_RATIO = 1 / 3
+
+TP_NOW = "🟢 可止盈"
+TP_TARGET = "🎯 目标止盈"
+TP_WATCH = "👀 等反弹减压"
+TP_NA = "⚪ 不适用"
+
 
 def _num(value: Any) -> Optional[float]:
     """解析数字，兼容 '3.25%'、'12.3' 这类字符串。"""
@@ -151,8 +164,8 @@ def _forecast_one(price: float, market: Dict[str, Optional[float]], digits: int 
     else:
         range_low, range_high = support, resistance
 
-    lo = f"{round(range_low, d)}" if range_low else "—"
-    hi = f"{round(range_high, d)}" if range_high else "—"
+    lo = f"{range_low:.{d}f}" if range_low else "—"
+    hi = f"{range_high:.{d}f}" if range_high else "—"
 
     if bias == "偏强":
         note = (
@@ -276,7 +289,7 @@ def _t_plan_one(price: float, cost: float, market: Dict[str, Optional[float]],
             qty = f"{t_shares} {unit}" if t_shares else f"{int(ratio * 100)}% 仓位"
             return {**base, "verdict": T_BUY_HIGH, "sell_at": sell_at, "buy_at": buy_back,
                     "saving": saving,
-                    "reason": f"距压力位 {round(resistance, d)} 仅 {dist_res:.1f}%，可先卖 {qty}；"
+                    "reason": f"距压力位 {resistance:.{d}f} 仅 {dist_res:.1f}%，可先卖 {qty}；"
                               f"回落到 {buy_back}（MA5 附近）买回，成本约降 {saving} 元/{unit}。"
                               f"若放量突破 {sell_at} 不回落，就别急着买回（防止 T 飞）"}
 
@@ -290,7 +303,7 @@ def _t_plan_one(price: float, cost: float, market: Dict[str, Optional[float]],
             qty = f"{t_shares} {unit}" if t_shares else f"{int(ratio * 100)}% 仓位"
             return {**base, "verdict": T_BUY_LOW, "buy_at": buy_at, "sell_at": sell_back,
                     "saving": saving,
-                    "reason": f"距支撑位 {round(support, d)} 仅 {dist_sup:.1f}%，可先买 {qty}；"
+                    "reason": f"距支撑位 {support:.{d}f} 仅 {dist_sup:.1f}%，可先买 {qty}；"
                               f"反弹到 {sell_back}（MA5 附近）卖出，成本约降 {saving} 元/{unit}。"
                               f"若跌破 {buy_at} 就别买第二笔（防止越 T 越低）"}
 
@@ -342,9 +355,113 @@ def build_t_plans(results: List[Any], positions: Optional[Dict[str, Dict[str, An
     return rows
 
 
+# ---------------------------------------------------------------- 止盈建议
+def _take_profit_one(price: float, cost: float, market: Dict[str, Optional[float]],
+                     shares: Optional[float] = None, digits: int = 2,
+                     unit: str = "股", min_gain: float = TP_MIN_GAIN,
+                     resistance: Optional[float] = None) -> Dict[str, Any]:
+    """止盈/减压计划 —— 回答「涨到哪里该卖」。
+
+    分三种情形：
+    1. 浮盈 ≥ min_gain：先减 1/3 落袋，剩下的用 MA10 做移动止盈（跌破全清）
+    2. 0 < 浮盈 < min_gain：涨到第一压力位减 1/3
+    3. 浮亏：不叫止盈，叫「反弹减压」——反弹到压力位减 1/3 降风险，
+       若压力位高于成本，顺带提示到成本价也可先减一部分解套
+
+    为什么只减 1/3：一次性清掉会错过后续趋势，全留着又容易坐过山车。
+    """
+    d = digits
+    pnl = ((price / cost - 1) * 100) if cost else 0.0
+    res = resistance if resistance is not None else market.get("resistance")
+    ma10 = market.get("ma10")
+    ma5 = market.get("ma5")
+
+    lot = int(shares * TP_RATIO) // 100 * 100 if shares else 0
+    small = shares is not None and lot < 100
+    if lot >= 100:
+        qty = f"{lot} {unit}"
+    elif small:
+        qty = "全部仓位"
+    else:
+        qty = "1/3 仓位"
+
+    def fmt(v: Optional[float]) -> str:
+        return f"{v:.{d}f}" if v else "—"
+
+    def trail_line(ratio: float) -> float:
+        """移动止盈线：MA10 与回撤价取高者。
+
+        优先 MA10（中期趋势线）。不用 MA5——它贴得太近，浮盈仓位一有正常波动就被震出去。
+        但股价快速拉升时 MA10 会远在下方，「跌破 MA10 再走」等于没保护
+        （40 元的票跌破 32.6 才走，利润已经回吐一大半），所以再叠一条回撤线兜底。
+        """
+        base = ma10 if (ma10 and ma10 < price) else (ma5 if (ma5 and ma5 < price) else None)
+        floor = price * ratio
+        return max(base, floor) if base else floor
+
+    base = {"tp_state": TP_NA, "tp_price": None, "tp_qty": lot or None,
+            "tp_line": "", "tp_reason": ""}
+
+    # 1) 浮盈已达标 —— 先落袋一批，剩下的交给移动止盈
+    if pnl >= min_gain:
+        trail = trail_line(0.90)
+        drop = (trail / price - 1) * 100
+        line = (f"现价 **{fmt(price)}** 附近**先减 {qty}**落袋；剩下的用移动止盈——"
+                f"**跌破 {fmt(trail)} 全清**（较现价 {drop:.1f}%），不跌破就继续拿")
+        return {**base, "tp_state": TP_NOW, "tp_price": round(price, d), "tp_line": line,
+                "tp_reason": f"浮盈 {pnl:.1f}%，已超过 {min_gain:.0f}% 的止盈线"}
+
+    # 2) 有浮盈但没到止盈线 —— 到压力位减一批
+    if pnl > 0:
+        if res and res > price:
+            gap = (res / price - 1) * 100
+            if gap <= NEAR_LEVEL_PCT:
+                line = (f"已贴到压力位 **{fmt(res)}**（距 {gap:.1f}%），可现价减 {qty}；"
+                        f"**放量突破并站稳 {fmt(res * 1.005)} 就不减**")
+            else:
+                line = f"涨到 **{fmt(res)}** 减 {qty}（第一压力位，距现价 +{gap:.1f}%）"
+            return {**base, "tp_state": TP_TARGET, "tp_price": round(res, d), "tp_line": line,
+                    "tp_reason": f"浮盈 {pnl:.1f}%，压力位是这波的第一道坎"}
+
+        # 刚站上压力位（2% 以内）—— 先看能不能站稳，别急着按回撤退
+        if res and res <= price and (price / res - 1) * 100 <= NEAR_LEVEL_PCT:
+            line = (f"已站上压力位 **{fmt(res)}**，浮盈 {pnl:.1f}%——"
+                    f"**站稳 {fmt(res)} 就继续拿，跌回 {fmt(res)} 下方再减 {qty}**")
+            return {**base, "tp_state": TP_TARGET, "tp_price": round(res, d), "tp_line": line,
+                    "tp_reason": "刚突破压力位，先给一天确认时间，跌破再走"}
+
+        # 压力位已经远离（或有突破但没数据）→ 改用回撤止盈
+        trail = trail_line(0.93)
+        drop = (trail / price - 1) * 100
+        line = (f"上方暂无新压力位，浮盈 {pnl:.1f}%——改用回撤止盈："
+                f"**跌破 {fmt(trail)} 减 {qty}**（较现价 {drop:.1f}%），不跌破继续拿")
+        return {**base, "tp_state": TP_TARGET, "tp_price": round(trail, d), "tp_line": line,
+                "tp_reason": "已站上原压力位，没有更高的参照价，按回撤幅度止盈"}
+
+    # 3) 浮亏 —— 不是止盈，是反弹减压
+    if res and res > price:
+        gap = (res / price - 1) * 100
+        if cost and cost < res:
+            need = (cost / price - 1) * 100
+            if need <= 30:
+                line = (f"浮亏 {abs(pnl):.1f}%，反弹到成本 **{fmt(cost)}**（+{need:.1f}%）"
+                        f"先减 {qty}减压；若继续上攻到 **{fmt(res)}** 再减一批")
+                return {**base, "tp_state": TP_WATCH, "tp_price": round(cost, d),
+                        "tp_line": line,
+                        "tp_reason": "成本价在压力位之下，先解套再谈减仓"}
+        line = (f"浮亏 {abs(pnl):.1f}%，反弹到 **{fmt(res)}** 减 {qty}减压（+{gap:.1f}%）；"
+                f"这条线过不去就别硬等成本价")
+        return {**base, "tp_state": TP_WATCH, "tp_price": round(res, d), "tp_line": line,
+                "tp_reason": "没有浮盈谈不上止盈，上方压力位是用来减仓降风险的"}
+
+    return {**base, "tp_state": TP_NA, "tp_price": None,
+            "tp_line": "上方压力位数据缺失，暂无明确减仓位；等反弹到 MA20 附近再评估",
+            "tp_reason": "缺压力位，给不出可执行的价位"}
+
+
 # ---------------------------------------------------------------- 持仓操作清单
 def _fmt(value: Optional[float], digits: int = 2) -> str:
-    return f"{round(value, digits)}" if value else "—"
+    return f"{value:.{digits}f}" if value else "—"
 
 
 def build_next_action(add_state: str, price: Optional[float],
@@ -417,6 +534,14 @@ def build_holdings_board(positions_map: Optional[Dict[str, Dict[str, Any]]],
             t_line = (f"先买 **{t['buy_at']}** → 反弹到 **{t['sell_at']}** 卖出，"
                       f"成本约降 **{t['saving']} 元/{unit}**")
 
+        # 止盈 / 反弹减压：回答「涨到哪里该卖」
+        tp = _take_profit_one(
+            price, info.get("cost") or 0,
+            {"ma5": p.get("ma5"), "ma10": p.get("ma10"), "ma20": p.get("ma20"),
+             "resistance": p.get("resistance")},
+            info.get("shares"), digits=digits, unit=unit,
+        )
+
         rows.append({
             "code": code,
             "name": info.get("name") or code,
@@ -432,6 +557,10 @@ def build_holdings_board(positions_map: Optional[Dict[str, Dict[str, Any]]],
             "t_verdict": t_verdict,
             "t_line": t_line,
             "t_reason": t.get("reason") or "",
+            "tp_state": tp.get("tp_state"),
+            "tp_price": tp.get("tp_price"),
+            "tp_line": tp.get("tp_line"),
+            "tp_reason": tp.get("tp_reason"),
         })
 
     rows.sort(key=lambda r: r.get("pnl_pct") if r.get("pnl_pct") is not None else 0)

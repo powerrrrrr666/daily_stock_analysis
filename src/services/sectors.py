@@ -349,7 +349,8 @@ def build_etf_positions(etf_positions: Optional[Dict[str, Dict[str, Any]]] = Non
     只把精度、振幅门槛、单边强势阈值换成 ETF 口径，避免两边结论打架。
     失败返回空列表，不影响主报告。
     """
-    from src.services.forecast import _forecast_one, _t_plan_one, build_next_action
+    from src.services.forecast import (_forecast_one, _t_plan_one, _take_profit_one,
+                                       build_next_action, TP_MIN_GAIN_ETF)
     from src.services.positions import _evaluate
 
     rows: List[Dict[str, Any]] = []
@@ -402,6 +403,12 @@ def build_etf_positions(etf_positions: Optional[Dict[str, Dict[str, Any]]] = Non
                 t_line = (f"先买 **{t_plan['buy_at']}** → 反弹到 **{t_plan['sell_at']}** 卖出，"
                           f"成本约降 **{t_plan['saving']} 元/份**")
 
+            # 止盈目标用 20 日高点（不是近 5 日高）——做T看短线，止盈要看向上的空间
+            tp = _take_profit_one(
+                price, cost, market, shares, digits=ETF_DIGITS, unit="份",
+                min_gain=TP_MIN_GAIN_ETF, resistance=detail.get("high20"),
+            )
+
             rows.append({
                 "code": code,
                 "name": info.get("name") or detail.get("name") or code,
@@ -424,6 +431,11 @@ def build_etf_positions(etf_positions: Optional[Dict[str, Dict[str, Any]]] = Non
                 "t_verdict": t_plan.get("verdict") or "⚪ 无数据",
                 "t_line": t_line,
                 "t_reason": t_plan.get("reason") or "",
+                # 止盈
+                "tp_state": tp.get("tp_state"),
+                "tp_price": tp.get("tp_price"),
+                "tp_line": tp.get("tp_line"),
+                "tp_reason": tp.get("tp_reason"),
                 # 参考位
                 "ma5": market["ma5"],
                 "ma20": market["ma20"],

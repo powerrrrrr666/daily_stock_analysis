@@ -126,7 +126,7 @@ def _extract_market(result: Any) -> Dict[str, Optional[float]]:
 
 
 def _fmt(value: Optional[float], digits: int = 2) -> str:
-    return f"{round(value, digits)}" if value else "—"
+    return f"{value:.{digits}f}" if value else "—"
 
 
 def _evaluate(price: float, cost: float, ma5: Optional[float],
@@ -244,6 +244,8 @@ def build_position_rows(results: List[Any], positions: Optional[Dict[str, Dict[s
             "pct_chg": market.get("pct_chg"),
             "amount": market.get("amount"),
             "ma5": market.get("ma5"),
+            "ma10": market.get("ma10"),
+            "ma20": market.get("ma20"),
             "support": market.get("support"),
             "resistance": market.get("resistance"),
             # 浮亏/浮盈金额：有股数才算，否则为 None

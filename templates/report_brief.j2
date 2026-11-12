@@ -33,6 +33,9 @@
 **💼 你的持仓**
 {%- for h in holdings_board %}
 - **{{ h.name }}**　{{ '%.2f'|format(h.cost) }}→{{ '%.2f'|format(h.price) }}{% if h.pnl_pct is not none %}（**{{ '%+.1f'|format(h.pnl_pct) }}%**{% if h.pnl_amount is not none %}，**{{ '%+.0f'|format(h.pnl_amount) }} 元**{% endif %}）{% endif %}{% if h.shares %}　{{ h.shares|int }}股{% endif %}　→ {{ h.next_action }}　｜ 补仓 {{ h.add_state }}　｜ 做T {{ h.t_verdict }}{% if h.t_line %}：{{ h.t_line }}{% endif %}
+{%- if h.tp_line %}
+  - {{ h.tp_state }}：{{ h.tp_line }}
+{%- endif %}
 {%- endfor %}
 {%- endif %}
 {%- if etf_rows %}
@@ -43,6 +46,7 @@
   - 📈 **走势**：{{ x.fc_bias }}　{{ x.fc_note }}{% if x.fc_basis %}（依据：{{ x.fc_basis }}）{% endif %}
   - 💰 **补仓**：{{ x.reason }}
   - 🔄 **做T**：{{ x.t_reason }}
+  - {{ x.tp_state }}：{{ x.tp_line }}
 {%- endfor %}
 {%- endif %}
 
