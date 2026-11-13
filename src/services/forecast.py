@@ -359,7 +359,8 @@ def build_t_plans(results: List[Any], positions: Optional[Dict[str, Dict[str, An
 def _take_profit_one(price: float, cost: float, market: Dict[str, Optional[float]],
                      shares: Optional[float] = None, digits: int = 2,
                      unit: str = "股", min_gain: float = TP_MIN_GAIN,
-                     resistance: Optional[float] = None) -> Dict[str, Any]:
+                     resistance: Optional[float] = None,
+                     preferred_level: Optional[float] = None) -> Dict[str, Any]:
     """止盈/减压计划 —— 回答「涨到哪里该卖」。
 
     分三种情形：
@@ -368,11 +369,17 @@ def _take_profit_one(price: float, cost: float, market: Dict[str, Optional[float
     3. 浮亏：不叫止盈，叫「反弹减压」——反弹到压力位减 1/3 降风险，
        若压力位高于成本，顺带提示到成本价也可先减一部分解套
 
+    preferred_level：操作信号模块给出的减仓价。它比纯压力位更贴合当下的技术形态，
+    传进来后优先使用，避免同一只票在报告里出现两个不同的卖出价。
+
     为什么只减 1/3：一次性清掉会错过后续趋势，全留着又容易坐过山车。
     """
     d = digits
     pnl = ((price / cost - 1) * 100) if cost else 0.0
     res = resistance if resistance is not None else market.get("resistance")
+    # 操作信号给的减仓价优先；但它必须高于现价才有意义
+    if preferred_level and preferred_level > price:
+        res = preferred_level
     ma10 = market.get("ma10")
     ma5 = market.get("ma5")
 
@@ -441,6 +448,12 @@ def _take_profit_one(price: float, cost: float, market: Dict[str, Optional[float
     # 3) 浮亏 —— 不是止盈，是反弹减压
     if res and res > price:
         gap = (res / price - 1) * 100
+        # 压力位就在头顶（2% 内）——「反弹到 X 再减」等于说「马上就到」，改成直接说现价可减
+        if gap <= NEAR_LEVEL_PCT:
+            line = (f"浮亏 {abs(pnl):.1f}%，现价 **{fmt(price)}** 已贴压力位 **{fmt(res)}**"
+                    f"（+{gap:.1f}%）——**{fmt(res)} 附近就可以先减 {qty}**，别指望一次冲过去")
+            return {**base, "tp_state": TP_WATCH, "tp_price": round(res, d), "tp_line": line,
+                    "tp_reason": "已贴压力位，上方空间不到 2%，先减一批降风险"}
         if cost and cost < res:
             need = (cost / price - 1) * 100
             if need <= 30:
@@ -535,11 +548,14 @@ def build_holdings_board(positions_map: Optional[Dict[str, Dict[str, Any]]],
                       f"成本约降 **{t['saving']} 元/{unit}**")
 
         # 止盈 / 反弹减压：回答「涨到哪里该卖」
+        # 若操作信号已给出减仓价，沿用它——同一只票不能出现两个卖出价
+        preferred = opp.get("level") if opp.get("action") == "🟠 该减仓" else None
         tp = _take_profit_one(
             price, info.get("cost") or 0,
             {"ma5": p.get("ma5"), "ma10": p.get("ma10"), "ma20": p.get("ma20"),
              "resistance": p.get("resistance")},
             info.get("shares"), digits=digits, unit=unit,
+            preferred_level=preferred,
         )
 
         rows.append({

@@ -20,7 +20,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from enum import Enum
 
@@ -1923,10 +1923,22 @@ class NotificationService(
                 report_mode = 'midday' if datetime.now().hour < 14 else 'close'
             if report_mode == 'midday':
                 mode_label = '午间'
-                data_scope = '上午收盘'
-                data_baseline_line = (
-                    f"📊 数据基准：**{report_date} 上午收盘（半日数据）** ｜ 用于午后操作"
-                )
+                # 判定必须用北京时间：GitHub runner 是 UTC，直接 datetime.now() 会差 8 小时，
+                # 11:35 会被算成凌晨，从而误判成「盘中」。
+                _bj = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=8)
+                _mins = _bj.hour * 60 + _bj.minute
+                if _mins < 11 * 60 + 30:
+                    # 11:30 前的临时盘中请求：拿到的是实时快照，不能说成「上午收盘」
+                    data_scope = '盘中'
+                    data_baseline_line = (
+                        f"📊 数据基准：**{report_date} 盘中实时快照（{_bj:%H:%M}）** ｜ "
+                        f"距上午收盘还有 {11 * 60 + 30 - _mins} 分钟，数据仍在变动"
+                    )
+                else:
+                    data_scope = '上午收盘'
+                    data_baseline_line = (
+                        f"📊 数据基准：**{report_date} 上午收盘（半日数据）** ｜ 用于午后操作"
+                    )
                 action_heading = "先说人话：下午怎么做"
                 signal_heading = "🎯 操作信号（下午怎么做）"
             else:
@@ -1956,7 +1968,7 @@ class NotificationService(
                     )
                 else:
                     data_integrity_line = (
-                        f"✅ 数据完整性：{len(expected)} 只全部取到{data_scope}完整数据"
+                        f"✅ 数据完整性：{len(expected)} 只全部取到{data_scope}数据"
                     )
 
             # 持仓成本与补仓机会（读 positions.json，失败不影响主报告）
