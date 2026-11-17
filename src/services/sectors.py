@@ -75,7 +75,7 @@ def fetch_hot_concepts(top_n: int = 5) -> List[Dict[str, Any]]:
     url = (
         "https://push2.eastmoney.com/api/qt/clist/get"
         "?pn=1&pz=200&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3"
-        "&fields=f3,f12,f14,f104,f105,f128"
+        "&fields=f3,f12,f14,f62,f104,f105,f128"
     )
     try:
         data = json.loads(_get(url))
@@ -94,6 +94,10 @@ def fetch_hot_concepts(top_n: int = 5) -> List[Dict[str, Any]]:
             continue
         up = it.get("f104") or 0
         dn = it.get("f105") or 0
+        try:
+            net_inflow = float(it.get("f62"))
+        except (TypeError, ValueError):
+            net_inflow = None
         if up + dn < 10:  # 成分股太少的细分概念，参考意义弱
             continue
         try:
@@ -103,12 +107,71 @@ def fetch_hot_concepts(top_n: int = 5) -> List[Dict[str, Any]]:
                 "up": int(up),
                 "dn": int(dn),
                 "leader": str(it.get("f128") or ""),
+                "net_inflow": net_inflow,
             })
         except (TypeError, ValueError):
             continue
         if len(out) >= top_n:
             break
     return out
+
+
+def _hot_why(pct: float, up: int, dn: int, leader: str,
+             net_inflow: Optional[float]) -> str:
+    """解释这个板块「为什么热」——只用可量化的盘面事实，不编产业逻辑。
+
+    能确定的三件事：涨跌家数（广度）、主力资金净流入（钱从哪来）、领涨股（谁在带）。
+    这三条凑起来，足以判断这波是「真普涨」还是「少数票拉指数」。
+    """
+    total = up + dn
+    breadth = (up / total * 100) if total else 0
+    parts: List[str] = []
+
+    if breadth >= 80:
+        parts.append(f"{up} 只涨 {dn} 只跌，几乎全线飘红")
+    elif breadth >= 60:
+        parts.append(f"{up} 涨 {dn} 跌，多数跟涨")
+    elif breadth >= 40:
+        parts.append(f"{up} 涨 {dn} 跌，内部分化明显")
+    else:
+        parts.append(f"只有 {up} 只涨、{dn} 只跌，靠少数票拉起来")
+
+    if net_inflow:
+        yi = net_inflow / 1e8
+        if yi >= 10:
+            parts.append(f"主力净流入 {yi:.1f} 亿，属于资金抢筹")
+        elif yi >= 3:
+            parts.append(f"主力净流入 {yi:.1f} 亿，钱在不断进来")
+        elif yi > 0:
+            parts.append(f"主力净流入 {yi:.1f} 亿，力度一般")
+        elif yi <= -3:
+            parts.append(f"主力净流出 {abs(yi):.1f} 亿，涨得有点虚")
+        else:
+            parts.append(f"主力小幅净流出 {abs(yi):.1f} 亿")
+
+    if leader:
+        parts.append(f"领涨 {leader}")
+
+    return "，".join(parts)
+
+
+def _hot_verdict(up: int, dn: int, net_inflow: Optional[float]) -> str:
+    """一句话判断这波热度能不能延续。"""
+    total = up + dn
+    breadth = (up / total * 100) if total else 0
+    inflow = (net_inflow or 0) / 1e8
+
+    if breadth >= 70 and inflow >= 3:
+        return "普涨 + 资金进场，这种热度通常能延续几天"
+    if breadth >= 70 and inflow < 0:
+        return "涨得广但资金在撤，多半是一日游，别追"
+    if breadth < 50 and inflow >= 5:
+        return "资金集中打少数票，跟风盘容易接在高位"
+    if breadth < 50:
+        return "少数票拉动，参与度低，不建议追"
+    if inflow <= -2:
+        return "涨面看着不错，但主力在净流出，涨势不牢，别追"
+    return "温度中等，看明天量能能否跟上"
 
 
 def _etf_for(concept: str) -> Optional[Tuple[str, str]]:
@@ -221,6 +284,8 @@ def build_sector_picks(top_n: int = 5) -> List[Dict[str, Any]]:
             "up": c["up"],
             "dn": c["dn"],
             "leader": c["leader"],
+            "why": _hot_why(c["pct"], c["up"], c["dn"], c["leader"], c.get("net_inflow")),
+            "why_verdict": _hot_verdict(c["up"], c["dn"], c.get("net_inflow")),
             "etf_code": code,
             "etf_name": short,
             "etf_price": quote["price"],

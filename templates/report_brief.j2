@@ -9,7 +9,7 @@
 {%- set dash0 = e.result.dashboard or {} -%}
 {%- set core0 = dash0.get('core_conclusion') or {} -%}
 {%- set one0 = core0.get('one_sentence') or e.result.analysis_summary or e.localized_trend_prediction or '暂无判断' -%}
-{%- set _ = summary_lines.append('- **' ~ e.stock_name ~ '** ' ~ e.signal_emoji ~ ' ' ~ e.signal_text ~ '：' ~ one0|truncate(42, true, '…')) -%}
+{%- set _ = summary_lines.append('- **' ~ e.stock_name ~ '** ' ~ e.signal_emoji ~ ' ' ~ e.signal_text ~ '：' ~ one0|truncate(55, true, '…')) -%}
 {%- endfor -%}
 # 📈 自选股简报（{{ report_date }}{{ ' ' ~ mode_label if mode_label else '' }}）
 
@@ -81,7 +81,8 @@
 
 {%- for s in sector_items %}
 - **{{ s.concept }}**　{{ '%+.2f'|format(s.concept_pct) }}%（涨 {{ s.up }} / 跌 {{ s.dn }}）　→　**{{ s.etf_name }} {{ s.etf_code }}**　现价 {{ s.etf_price }}（{{ '%+.2f'|format(s.etf_pct) }}%）　{{ s.label }}
-  - {{ s.reason }}
+  - 🔥 **为什么热**：{{ s.why }}
+  - 💡 **怎么参与**：{% if s.why_verdict %}{{ s.why_verdict }}。{% endif %}{{ s.reason }}
 {%- endfor %}
 
 > 判断逻辑：板块热度 + ETF 自身趋势双重把关。**板块热但 ETF 跌破 20 日线时不建议参与**。单只 ETF 仓位建议 ≤ 总仓位 10%。
@@ -104,25 +105,25 @@
 {%- set attr = dash.get('signal_attribution') or {} %}
 {%- set price = snap.get('price') or pp.get('current_price') %}
 {%- set tech = [] %}
-{%- if ts.get('ma_alignment') %}{% set _ = tech.append(clip(ts.get('ma_alignment'), 30)) %}{% endif %}
+{%- if ts.get('ma_alignment') %}{% set _ = tech.append(clip(ts.get('ma_alignment'), 45)) %}{% endif %}
 {%- if pp.get('support_level') %}{% set _ = tech.append('支撑 ' ~ pp.get('support_level')) %}{% endif %}
 {%- if pp.get('resistance_level') %}{% set _ = tech.append('压力 ' ~ pp.get('resistance_level')) %}{% endif %}
 {%- set bullets = [] %}
 {%- if tech %}{% set _ = bullets.append('- **技术面**：' ~ tech|join(' ｜ ')) %}{% endif %}
-{%- if va.get('volume_meaning') %}{% set _ = bullets.append('- **量能**：换手 ' ~ (va.get('turnover_rate') or 'N/A') ~ '%，' ~ clip(va.get('volume_meaning'), 32)) %}{% elif va.get('turnover_rate') %}{% set _ = bullets.append('- **量能**：换手率 ' ~ va.get('turnover_rate') ~ '%') %}{% endif %}
+{%- if va.get('volume_meaning') %}{% set _ = bullets.append('- **量能**：换手 ' ~ (va.get('turnover_rate') or 'N/A') ~ '%，' ~ clip(va.get('volume_meaning'), 60)) %}{% elif va.get('turnover_rate') %}{% set _ = bullets.append('- **量能**：换手率 ' ~ va.get('turnover_rate') ~ '%') %}{% endif %}
 {%- set pos_items = [] %}
-{%- for c in (intel.get('positive_catalysts') or [])[:2] %}{% set _ = pos_items.append(clip(c, 30)) %}{% endfor %}
+{%- for c in (intel.get('positive_catalysts') or [])[:2] %}{% set _ = pos_items.append(clip(c, 55)) %}{% endfor %}
 {%- if pos_items %}{% set _ = bullets.append('- **利好**：' ~ pos_items|join('；')) %}{% endif %}
 {%- set risk_items = [] %}
-{%- for a in (intel.get('risk_alerts') or [])[:2] %}{% set _ = risk_items.append(clip(a, 30)) %}{% endfor %}
+{%- for a in (intel.get('risk_alerts') or [])[:2] %}{% set _ = risk_items.append(clip(a, 55)) %}{% endfor %}
 {%- if risk_items %}{% set _ = bullets.append('- **风险**：' ~ risk_items|join('；')) %}{% endif %}
 {%- set earn = intel.get('earnings_outlook') %}
 {%- set ns = namespace(earn_missing=false) %}
 {%- if earn %}{% for kw in missing_kw %}{% if kw in earn %}{% set ns.earn_missing = true %}{% endif %}{% endfor %}{% endif %}
-{%- if earn and not ns.earn_missing %}{% set _ = bullets.append('- **业绩**：' ~ clip(earn, 34)) %}{% endif %}
+{%- if earn and not ns.earn_missing %}{% set _ = bullets.append('- **业绩**：' ~ clip(earn, 60)) %}{% endif %}
 {%- set duo = [] %}
-{%- if attr.get('strongest_bullish_signal') %}{% set _ = duo.append('看多「' ~ clip(attr.get('strongest_bullish_signal'), 22) ~ '」') %}{% endif %}
-{%- if attr.get('strongest_bearish_signal') %}{% set _ = duo.append('看空「' ~ clip(attr.get('strongest_bearish_signal'), 22) ~ '」') %}{% endif %}
+{%- if attr.get('strongest_bullish_signal') %}{% set _ = duo.append('看多「' ~ clip(attr.get('strongest_bullish_signal'), 42) ~ '」') %}{% endif %}
+{%- if attr.get('strongest_bearish_signal') %}{% set _ = duo.append('看空「' ~ clip(attr.get('strongest_bearish_signal'), 42) ~ '」') %}{% endif %}
 {%- if duo %}{% set _ = bullets.append('- **多空**：' ~ duo|join('　')) %}{% endif %}
 
 ## {{ num_emoji[loop.index0] if loop.index0 < 10 else loop.index }} {{ e.stock_name }} {{ result.code }} ｜ {{ (signal_map or {}).get(result.code, {}).get('label') or e.signal_text }}
@@ -136,7 +137,7 @@
 {%- set one_sentence = core.get('one_sentence') or result.analysis_summary %}
 {%- if one_sentence %}
 
-**一句话判断**：{{ clip(one_sentence, 44) }}
+**一句话判断**：{{ clip(one_sentence, 62) }}
 {%- endif %}
 {%- set fc = (forecast_map or {}).get(result.code) %}
 {%- if fc %}
@@ -152,8 +153,8 @@
 
 **怎么办**
 {%- set sig2 = (signal_map or {}).get(result.code) %}
-- 🆕 **空仓者** → {% if sig2 and sig2.label and sig2.label.startswith('🟢') %}现价 **{{ sig2.level }}** 附近可买（{{ sig2.size }}）{% if sig2.stop %}，止损 **{{ sig2.stop }}**{% endif %}{% elif sig2 and sig2.label == '🟡 半仓试' %}现价 **{{ sig2.level }}** 先用**一半仓位**试{% if sig2.stop %}，止损 **{{ sig2.stop }}**{% endif %}，跌破立即走{% elif sig2 and sig2.label == '⚠️ 信号分歧' %}**先不动**——技术面与消息面打架，等分歧消除再出手{% elif sig2 and '等触发' in sig2.label %}到 **{{ sig2.level }}** 再买{% if sig2.stop %}，止损 **{{ sig2.stop }}**{% endif %}{% else %}{{ clip(pos_advice.get('no_position') or e.localized_operation_advice, 72) }}{% endif %}
-- 💼 **持仓者** → {{ clip(pos_advice.get('has_position') or '继续持有，跌破关键支撑再减', 72) }}
+- 🆕 **空仓者** → {% if sig2 and sig2.label and sig2.label.startswith('🟢') %}现价 **{{ sig2.level }}** 附近可买（{{ sig2.size }}）{% if sig2.stop %}，止损 **{{ sig2.stop }}**{% endif %}{% elif sig2 and sig2.label == '🟡 半仓试' %}现价 **{{ sig2.level }}** 先用**一半仓位**试{% if sig2.stop %}，止损 **{{ sig2.stop }}**{% endif %}，跌破立即走{% elif sig2 and sig2.label == '⚠️ 信号分歧' %}**先不动**——技术面与消息面打架，等分歧消除再出手{% elif sig2 and '等触发' in sig2.label %}到 **{{ sig2.level }}** 再买{% if sig2.stop %}，止损 **{{ sig2.stop }}**{% endif %}{% else %}{{ clip(pos_advice.get('no_position') or e.localized_operation_advice, 110) }}{% endif %}
+- 💼 **持仓者** → {{ clip(pos_advice.get('has_position') or '继续持有，跌破关键支撑再减', 110) }}
 {%- set levels = [] %}
 {%- if sniper.get('ideal_buy') %}{% set _ = levels.append('理想买入 ' ~ clip(clean_sniper(sniper.get('ideal_buy')), 22)) %}{% endif %}
 {%- if sniper.get('stop_loss') %}{% set _ = levels.append('止损 ' ~ clip(clean_sniper(sniper.get('stop_loss')), 22)) %}{% endif %}
@@ -163,11 +164,11 @@
 {%- endif %}
 {%- if not dash and result.buy_reason %}
 
-**操作理由**：{{ clip(result.buy_reason, 60) }}
+**操作理由**：{{ clip(result.buy_reason, 100) }}
 {%- endif %}
 {%- if not dash and result.risk_warning %}
 
-**风险提示**：{{ clip(result.risk_warning, 60) }}
+**风险提示**：{{ clip(result.risk_warning, 100) }}
 {%- endif %}
 
 ---
