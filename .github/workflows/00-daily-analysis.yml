@@ -402,7 +402,7 @@ jobs:
           # 单条推送最大字节数。默认 20000 偏保守——实测 2026-10-14 单条 24053 字节、
           # 2026-10-20 单条 29024 字节均返回 code=200。自选股扩到 11 只后内容约 25KB，
           # 设为 32000（内部再预留 1500 → 预算 30500）确保仍为一条消息。
-          PUSHPLUS_MAX_BYTES: ${{ vars.PUSHPLUS_MAX_BYTES || secrets.PUSHPLUS_MAX_BYTES || '32000' }}
+          PUSHPLUS_MAX_BYTES: ${{ vars.PUSHPLUS_MAX_BYTES || secrets.PUSHPLUS_MAX_BYTES || '18000' }}
           
           # 方式七：自定义 Webhook（钉钉、Bark、自建服务等）
           CUSTOM_WEBHOOK_URLS: ${{ secrets.CUSTOM_WEBHOOK_URLS }}
@@ -653,7 +653,12 @@ jobs:
           SSTAT="nolog"
           if ls logs/*.log >/dev/null 2>&1; then
             SSTAT="pushnone"
-            if grep -q "PushPlus 消息发送成功" logs/*.log 2>/dev/null; then
+            # 分批推送时只要有一批失败，用户收到的就是残缺内容，绝不能标 pushok——
+            # 2026-11-17 收盘就是 1/2 批 999、2/2 批成功，被误判成 pushok，
+            # 本机补推因此跳过，用户只收到报告后半段。
+            if grep -q "批发送失败" logs/*.log 2>/dev/null; then
+              SSTAT="pushpart"
+            elif grep -q "PushPlus 消息发送成功" logs/*.log 2>/dev/null; then
               SSTAT="pushok"
             elif grep -q "PushPlus 发送最终失败" logs/*.log 2>/dev/null; then
               SSTAT="pushfinal"
