@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
 """热门板块 + 对应 ETF 建议。
 
-数据源（全部免密钥）：
-  1. 东方财富概念板块排行 —— 找出今日最热的概念
+数据源：
+  1. 东方财富概念板块排行 —— 找出今日最热的概念（涨跌家数 + 主力净流入）
   2. 腾讯行情 —— 取对应 ETF 的现价、涨跌幅、20 日均线位置
+  3. Tavily 搜索 —— 取板块的消息面催化（需 TAVILY_API_KEYS，缺失时静默跳过）
 
 设计原则：
   - 任何异常都只记日志并返回空列表，**绝不阻断主报告**
   - 不给模糊建议，每个 ETF 必须落到一句可执行结论 + 价位
+  - 消息面只引用真实新闻标题，**不让 LLM 编产业逻辑**——编出来的原因无法验证
 """
 import json
 import logging
+import os
 import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -114,6 +117,59 @@ def fetch_hot_concepts(top_n: int = 5) -> List[Dict[str, Any]]:
         if len(out) >= top_n:
             break
     return out
+
+
+def _sector_news(concept: str, keys: List[str]) -> Optional[str]:
+    """搜一条该板块最近的消息面催化，返回可直接引用的标题串。
+
+    只引用搜索结果里**标题包含板块关键词**的条目，避免把无关新闻硬安上去。
+    任何异常（未装 tavily、无 key、超时、无结果）都返回 None，让调用方降级。
+    """
+    if not keys:
+        return None
+    try:
+        from tavily import TavilyClient
+    except ImportError:
+        return None
+
+    def _relevant(title: str) -> bool:
+        """标题里必须真提到这个板块，否则就是搜索结果串味。
+
+        先试完整板块名；不行再退到任意连续 2 字——
+        新闻标题常写「半导体材料」而不写「光刻胶」，只认全名会漏掉一半。
+        """
+        if concept in title:
+            return True
+        return any(concept[i:i + 2] in title for i in range(len(concept) - 1))
+
+    try:
+        client = TavilyClient(api_key=keys[0])
+        resp = client.search(
+            query=f"{concept} 板块 上涨 原因 最新消息",
+            search_depth="basic",
+            max_results=6,
+            days=3,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[热门板块] %s 消息面搜索失败：%s: %s", concept, type(exc).__name__, exc)
+        return None
+
+    picked: List[str] = []
+    for r in (resp.get("results") or []):
+        title = str(r.get("title") or "").strip()
+        if not title:
+            continue
+        if not _relevant(title):
+            continue
+        title = title.replace("\n", " ").strip()
+        if len(title) > 60:
+            title = title[:60] + "…"
+        if title not in picked:
+            picked.append(title)
+        if len(picked) >= 2:
+            break
+
+    return "；".join(picked) if picked else None
 
 
 def _hot_why(pct: float, up: int, dn: int, leader: str,
@@ -255,6 +311,7 @@ def _advice(quote: Dict[str, Any], concept_pct: float) -> Tuple[str, str]:
 
 def build_sector_picks(top_n: int = 5) -> List[Dict[str, Any]]:
     """热门概念 -> 对应 ETF -> 可执行建议。失败返回空列表。"""
+    tavily_keys = [k.strip() for k in (os.getenv("TAVILY_API_KEYS") or "").split(",") if k.strip()]
     # 多取一些概念，因为部分冷门概念没有对应 ETF，需要往下找补
     try:
         concepts = fetch_hot_concepts(top_n=top_n * 10)
@@ -293,7 +350,22 @@ def build_sector_picks(top_n: int = 5) -> List[Dict[str, Any]]:
             "ma20": quote.get("ma20"),
             "label": label,
             "reason": reason,
+            "news": None,
         })
+
+    # 消息面：并发搜前几个板块的驱动新闻，任一失败都不影响其他字段
+    if rows and tavily_keys:
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                found = list(pool.map(lambda r: _sector_news(r["concept"], tavily_keys), rows))
+            for row, news in zip(rows, found):
+                row["news"] = news
+            hit = sum(1 for n in found if n)
+            logger.info("[热门板块] 消息面命中 %s/%s", hit, len(rows))
+        except Exception as exc:  # noqa: BLE001
+            logger.info("[热门板块] 消息面批量搜索失败：%s: %s", type(exc).__name__, exc)
     return rows
 
 
