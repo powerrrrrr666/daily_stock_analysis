@@ -137,7 +137,7 @@ def _fetch_from_eastmoney(top_n: int = 5) -> List[Dict[str, Any]]:
     return out
 
 
-def _sector_news(concept: str, keys: Optional[List[str]] = None) -> Optional[str]:
+def _sector_news(concept: str, keys: Optional[List[str]] = None) -> List[str]:
     """取该板块最近的消息面标题。
 
     2026-11-20 从 Tavily 换成东方财富资讯搜索：Tavily 实跑两次都返回
@@ -151,19 +151,39 @@ def _sector_news(concept: str, keys: Optional[List[str]] = None) -> Optional[str
         kw = concept
         for suffix in ("概念", "风格", "板块", "指数"):
             kw = kw.replace(suffix, "")
-        items = fetch_eastmoney_news(kw or concept, days=3, limit=2)
-        return "；".join(items) if items else None
+        return fetch_eastmoney_news(kw or concept, days=3, limit=3)
     except Exception as exc:  # noqa: BLE001
         logger.info("[热门板块] %s 消息面获取失败：%s: %s", concept, type(exc).__name__, exc)
-        return None
+        return []
 
 
-def _hot_why(pct: float, up: int, dn: int, leader: str,
-             net_inflow: Optional[float]) -> str:
-    """解释这个板块「为什么热」——只用可量化的盘面事实，不编产业逻辑。
+# 新闻标题的利好/利空判断。只认明确的事件词，不做语义推断。
+_BULLISH_KW = ("中标", "订单", "签约", "扩产", "涨价", "提价", "突破", "量产", "获批",
+               "政策", "补贴", "增持", "回购", "预增", "超预期", "落地", "合作",
+               "开工", "投产", "放量", "新高")
+_BEARISH_KW = ("澄清", "否认", "亏损", "减持", "问询", "处罚", "风险提示",
+               "下滑", "预减", "终止", "失败", "下调", "被查", "违规")
 
-    能确定的三件事：涨跌家数（广度）、主力资金净流入（钱从哪来）、领涨股（谁在带）。
-    这三条凑起来，足以判断这波是「真普涨」还是「少数票拉指数」。
+
+def _classify_news(titles: List[str]) -> Dict[str, List[str]]:
+    """把新闻分成利好 / 利空 / 中性三堆。"""
+    out: Dict[str, List[str]] = {"bullish": [], "bearish": [], "other": []}
+    for t in titles or []:
+        if any(k in t for k in _BEARISH_KW):
+            out["bearish"].append(t)
+        elif any(k in t for k in _BULLISH_KW):
+            out["bullish"].append(t)
+        else:
+            out["other"].append(t)
+    return out
+
+
+def _hot_panel(pct: float, up: int, dn: int, leader: str,
+               net_inflow: Optional[float]) -> str:
+    """板块的盘面特征 —— 涨跌家数、资金流向、领涨股。
+
+    ⚠️ 这是「表现」不是「原因」。2026-11-20 用户指出：光说多少涨多少跌
+    解释不了它为什么热，真正的原因得从消息面找。所以这段单独成行叫「盘面」。
     """
     total = up + dn
     breadth = (up / total * 100) if total else 0
@@ -175,8 +195,10 @@ def _hot_why(pct: float, up: int, dn: int, leader: str,
         parts.append(f"{up} 涨 {dn} 跌，多数跟涨")
     elif breadth >= 40:
         parts.append(f"{up} 涨 {dn} 跌，内部分化明显")
-    else:
+    elif pct > 0:
         parts.append(f"只有 {up} 只涨、{dn} 只跌，靠少数票拉起来")
+    else:
+        parts.append(f"{up} 涨 {dn} 跌，普跌格局")
 
     if net_inflow:
         yi = net_inflow / 1e8
@@ -366,8 +388,8 @@ def _advice(quote: Dict[str, Any], concept_pct: float, mood: str = "") -> Tuple[
         gap = (price / ma20 - 1) * 100
         if weak:
             return "⏸ 先别碰", (
-                f"ETF 技术面站上 20 日线 {ma20}（+{gap:.1f}%），但板块{mood}——"
-                f"**只是指数在撑，不是真有行情**，等板块赚钱效应回来再说"
+                f"ETF 技术面站上 20 日线 {ma20}（+{gap:.1f}%），但板块没有赚钱效应——"
+                f"**只是指数在撑，不是真有行情**，等板块热度回来再说"
             )
         return "🟢 可小仓", (
             f"板块{word} {abs(concept_pct):.1f}%、ETF 站上 20 日线 {ma20}（+{gap:.1f}%），"
@@ -401,7 +423,7 @@ def build_sector_picks(top_n: int = 5) -> List[Dict[str, Any]]:
         if not quote:
             continue
         seen_etf.add(code)
-        why = _hot_why(c["pct"], c["up"], c["dn"], c["leader"], c.get("net_inflow"))
+        panel = _hot_panel(c["pct"], c["up"], c["dn"], c["leader"], c.get("net_inflow"))
         why_verdict = _hot_verdict(c["up"], c["dn"], c.get("net_inflow"))
         label, reason = _advice(quote, c["pct"], why_verdict)
         rows.append({
@@ -410,7 +432,8 @@ def build_sector_picks(top_n: int = 5) -> List[Dict[str, Any]]:
             "up": c["up"],
             "dn": c["dn"],
             "leader": c["leader"],
-            "why": why,
+            "why": "",
+            "panel": panel,
             "why_verdict": why_verdict,
             "etf_code": code,
             "etf_name": short,
@@ -431,6 +454,16 @@ def build_sector_picks(top_n: int = 5) -> List[Dict[str, Any]]:
                 found = list(pool.map(lambda r: _sector_news(r["concept"]), rows))
             for row, news in zip(rows, found):
                 row["news"] = news
+                cls = _classify_news(news)
+                if cls["bullish"]:
+                    # 有明确利好就直接引用标题，这就是「为什么热」
+                    row["why"] = cls["bullish"][0]
+                elif cls["bearish"]:
+                    row["why"] = f"没找到利好，反而有负面（{cls['bearish'][0]}），更像资金在博弈"
+                elif row["concept_pct"] > 0:
+                    row["why"] = "没搜到明确的利好消息——这波上涨没有基本面支撑，是资金推动"
+                else:
+                    row["why"] = "没搜到明确的利好消息，本身也在跌，没有参与价值"
             hit = sum(1 for n in found if n)
             logger.info("[热门板块] 消息面命中 %s/%s", hit, len(rows))
         except Exception as exc:  # noqa: BLE001

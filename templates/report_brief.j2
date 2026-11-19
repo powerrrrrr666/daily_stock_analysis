@@ -94,8 +94,8 @@
 {%- for s in sector_items %}
 - **{{ s.concept }}**　{{ '%+.2f'|format(s.concept_pct) }}%（涨 {{ s.up }} / 跌 {{ s.dn }}）　→　**{{ s.etf_name }} {{ s.etf_code }}**　现价 {{ s.etf_price }}（{{ '%+.2f'|format(s.etf_pct) }}%）　{{ s.label }}
   - 🔥 **为什么热**：{{ s.why }}
-{%- if s.news %}
-  - 📰 **消息面**：{{ s.news }}
+{%- if s.panel %}
+  - 📊 **盘面**：{{ s.panel }}
 {%- endif %}
   - 💡 **怎么参与**：{% if s.why_verdict %}{{ s.why_verdict }}。{% endif %}{{ s.reason }}
 {%- endfor %}
