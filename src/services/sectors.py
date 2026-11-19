@@ -339,29 +339,41 @@ def _quote_and_ma20(code: str) -> Optional[Dict[str, Any]]:
     return {"name": name, "price": price, "pct": pct, "ma20": ma20}
 
 
-def _advice(quote: Dict[str, Any], concept_pct: float) -> Tuple[str, str]:
-    """返回 (结论标签, 一句话理由)。结论必须是可执行动作，不写"观望"。"""
+def _advice(quote: Dict[str, Any], concept_pct: float, mood: str = "") -> Tuple[str, str]:
+    """返回 (结论标签, 一句话理由)。
+
+    mood 来自 _hot_verdict（板块自身的赚钱效应）。板块没参与度时，
+    即使 ETF 站上 20 日线也不能说「可小仓」——2026-11-20 就出现过
+    「板块 10 涨 42 跌、资金撤」却标 🟢 可小仓的自相矛盾。
+    """
     price = quote.get("price")
     pct = quote.get("pct") or 0.0
     ma20 = quote.get("ma20")
+    word = "涨" if concept_pct > 0 else "跌"
+    weak = any(k in mood for k in ("不建议追", "别追", "接在高位", "涨势不牢"))
 
     if concept_pct >= 4.0 or pct >= 3.0:
-        return "⚠️ 别追", f"板块今天已涨 {concept_pct:.1f}%、ETF 涨 {pct:.1f}%，追高容易买在情绪高点，等回踩再看"
+        return "⚠️ 别追", f"板块今天已{word} {abs(concept_pct):.1f}%、ETF 涨 {pct:.1f}%，追高容易买在情绪高点，等回踩再看"
     if ma20 and price and price < ma20:
         gap = (price / ma20 - 1) * 100
         if gap <= -8:
             return "🔻 趋势坏", (
-                f"板块虽热（+{concept_pct:.1f}%），但 ETF 现价 {price} 比 20 日线 {ma20} 低 {abs(gap):.1f}%，"
-                f"中期趋势明显走坏——**板块热 ≠ 趋势好**，别抄这个底，等站回 {ma20} 再谈"
+                f"ETF 现价 {price} 比 20 日线 {ma20} 低 {abs(gap):.1f}%，中期趋势明显走坏——"
+                f"**板块热 ≠ 趋势好**，别抄这个底，等站回 {ma20} 再谈"
             )
         return "⏸ 等站回", f"ETF 现价 {price} 仍在 20 日线 {ma20} 下方（{gap:.1f}%），站回 {ma20} 再买"
     if ma20 and price:
         gap = (price / ma20 - 1) * 100
+        if weak:
+            return "⏸ 先别碰", (
+                f"ETF 技术面站上 20 日线 {ma20}（+{gap:.1f}%），但板块{mood}——"
+                f"**只是指数在撑，不是真有行情**，等板块赚钱效应回来再说"
+            )
         return "🟢 可小仓", (
-            f"板块涨 {concept_pct:.1f}%、ETF 站上 20 日线 {ma20}（+{gap:.1f}%），"
+            f"板块{word} {abs(concept_pct):.1f}%、ETF 站上 20 日线 {ma20}（+{gap:.1f}%），"
             f"可小仓参与（≤总仓位 10%），跌破 {ma20} 走"
         )
-    return "🟡 可关注", f"板块涨 {concept_pct:.1f}%，ETF 涨 {pct:.1f}%，均线数据缺失，先小仓试探"
+    return "🟡 可关注", f"板块{word} {abs(concept_pct):.1f}%，ETF 涨 {pct:.1f}%，均线数据缺失，先小仓试探"
 
 
 def build_sector_picks(top_n: int = 5) -> List[Dict[str, Any]]:
@@ -389,15 +401,17 @@ def build_sector_picks(top_n: int = 5) -> List[Dict[str, Any]]:
         if not quote:
             continue
         seen_etf.add(code)
-        label, reason = _advice(quote, c["pct"])
+        why = _hot_why(c["pct"], c["up"], c["dn"], c["leader"], c.get("net_inflow"))
+        why_verdict = _hot_verdict(c["up"], c["dn"], c.get("net_inflow"))
+        label, reason = _advice(quote, c["pct"], why_verdict)
         rows.append({
             "concept": c["name"],
             "concept_pct": round(c["pct"], 2),
             "up": c["up"],
             "dn": c["dn"],
             "leader": c["leader"],
-            "why": _hot_why(c["pct"], c["up"], c["dn"], c["leader"], c.get("net_inflow")),
-            "why_verdict": _hot_verdict(c["up"], c["dn"], c.get("net_inflow")),
+            "why": why,
+            "why_verdict": why_verdict,
             "etf_code": code,
             "etf_name": short,
             "etf_price": quote["price"],
