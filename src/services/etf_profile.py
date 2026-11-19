@@ -47,12 +47,13 @@ _DOWNSTREAM = ("消费", "白酒", "食品", "医药", "医疗", "创新药", "�
 _CYCLICAL = ("有色", "煤炭", "钢铁", "化工", "稀土", "黄金", "贵金属")
 _FINANCIALS = ("银行", "证券", "券商", "保险", "红利")
 
+# 标签要说人话。「上游制造」「中游运营」是产业链术语，股民看报告不想先翻译一遍。
 _POSITION_LABEL = {
-    "upstream_mfg": "上游制造",
-    "midstream_ops": "中游运营",
-    "downstream": "下游消费",
-    "cyclical": "周期资源",
-    "financials": "金融",
+    "upstream_mfg": "造芯片的",
+    "midstream_ops": "用算力做生意的",
+    "downstream": "消费类",
+    "cyclical": "资源品",
+    "financials": "金融机构",
     "unknown": "",
 }
 
@@ -121,6 +122,22 @@ def query_of(name: str) -> str:
             if k in (name or ""):
                 return k
     return (name or "").replace("ETF", "").strip()
+
+
+def fetch_track_index(code: str) -> Optional[Dict[str, str]]:
+    """取 ETF 跟踪的指数名称与代码。抓不到返回 None。"""
+    url = ("https://fundmobapi.eastmoney.com/FundMNewApi/FundMNNBasicInformation"
+           f"?FCODE={code}&deviceid=1&plat=Android&product=EFund&version=6.3.8")
+    try:
+        raw = _get(url, referer="https://fund.eastmoney.com/")
+        data = json.loads(raw).get("Datas") or {}
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[ETF画像] %s 跟踪指数获取失败：%s: %s", code, type(exc).__name__, exc)
+        return None
+    name = str(data.get("INDEXNAME") or "").strip()
+    if not name:
+        return None
+    return {"name": name, "code": str(data.get("INDEXCODE") or "").strip()}
 
 
 def fetch_holdings(code: str, top: int = 5) -> Optional[Dict[str, Any]]:
@@ -272,14 +289,20 @@ def build_etf_thesis(name: str, code: str, pct_chg: Optional[float] = None,
     result: Dict[str, Any] = {"holdings_line": "", "news_line": "",
                               "thesis_line": "", "position": ""}
 
-    # ---- 第一层：持仓
+    # ---- 第一层：跟踪指数 + 持仓
+    index = fetch_track_index(code)
+    index_txt = f"跟踪{index['name']}" if index else ""
     hold = fetch_holdings(code)
     if hold:
         parts = [f"{n} {p}%" if p else n for n, p in hold["items"]]
         q = f"（{hold['quarter']}）" if hold.get("quarter") else ""
-        result["holdings_line"] = "、".join(parts) + q
+        head = f"{index_txt}　" if index_txt else ""
+        result["holdings_line"] = f"{head}前五 {'、'.join(parts)}{q}"
+    elif index_txt:
+        # 新基金季报还没出，如实说「看不到持仓」，但把跟踪标的告诉用户
+        result["holdings_line"] = f"{index_txt}（新基金，季报还没披露具体持仓）"
     else:
-        result["holdings_line"] = "季报未披露，参见基金合同与跟踪标的成分"
+        result["holdings_line"] = ""
 
     # ---- 第二层：新闻
     position = classify_position(name)

@@ -79,7 +79,7 @@ def _get_gbk(url: str) -> str:
         return r.read().decode("gbk", "replace")
 
 
-def fetch_hot_concepts(top_n: int = 5) -> List[Dict[str, Any]]:
+def _fetch_from_eastmoney(top_n: int = 5) -> List[Dict[str, Any]]:
     """取今日涨幅靠前的概念板块（已剔除统计类/资金类概念）。"""
     # 2026-11-19 东财主域名返回 502（IP 被临时限流），整块热门板块直接消失。
     # 改成三个域名轮询 + 每个重试一次，任一个通就够用。
@@ -180,14 +180,18 @@ def _hot_why(pct: float, up: int, dn: int, leader: str,
 
     if net_inflow:
         yi = net_inflow / 1e8
+        rising = pct > 0
         if yi >= 10:
-            parts.append(f"主力净流入 {yi:.1f} 亿，属于资金抢筹")
+            parts.append(f"主力净流入 {yi:.1f} 亿，"
+                         + ("属于资金抢筹" if rising else "跌的时候还有钱在接"))
         elif yi >= 3:
-            parts.append(f"主力净流入 {yi:.1f} 亿，钱在不断进来")
+            parts.append(f"主力净流入 {yi:.1f} 亿，"
+                         + ("钱在不断进来" if rising else "有资金逆势承接"))
         elif yi > 0:
             parts.append(f"主力净流入 {yi:.1f} 亿，力度一般")
         elif yi <= -3:
-            parts.append(f"主力净流出 {abs(yi):.1f} 亿，涨得有点虚")
+            parts.append(f"主力净流出 {abs(yi):.1f} 亿，"
+                         + ("涨得有点虚" if rising else "资金在撤"))
         else:
             parts.append(f"主力小幅净流出 {abs(yi):.1f} 亿")
 
@@ -214,6 +218,71 @@ def _hot_verdict(up: int, dn: int, net_inflow: Optional[float]) -> str:
     if inflow <= -2:
         return "涨面看着不错，但主力在净流出，涨势不牢，别追"
     return "温度中等，看明天量能能否跟上"
+
+
+def _fetch_from_tencent(limit: int) -> List[Dict[str, Any]]:
+    """腾讯概念板块排行 —— 海外 IP 也能拿到。
+
+    为什么换源：东方财富的 push2 接口对 GitHub runner（美国 IP）持续返回 502，
+    三个域名都试过。2026-11-19 两期报告的热门板块因此整块消失。
+    腾讯这个接口对海外 IP 正常，且字段齐全（涨跌幅、涨跌家数、主力净流入、领涨股）。
+
+    sort_type/direct 这两个参数在腾讯侧不生效，返回顺序是乱的，
+    所以直接取 200 条回来自己按涨跌幅排序。
+    """
+    url = ("https://proxy.finance.qq.com/cgi/cgi-bin/rank/pt/getRank"
+           "?board_type=gn&sort_type=price&direct=down&offset=0&count=200")
+    try:
+        raw = _get(url, referer="https://stockapp.finance.qq.com/")
+        data = json.loads(raw)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[热门板块] 腾讯接口失败：%s: %s", type(exc).__name__, exc)
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for it in ((data.get("data") or {}).get("rank_list") or []):
+        name = str(it.get("name") or "").strip()
+        if not name or any(w in name for w in _BLOCK_WORDS):
+            continue
+        try:
+            pct = float(it.get("zdf"))
+        except (TypeError, ValueError):
+            continue
+
+        up = dn = 0
+        zgb = str(it.get("zgb") or "")
+        if "/" in zgb:
+            try:
+                a, b = zgb.split("/", 1)
+                up, dn = int(a), int(b)
+            except ValueError:
+                up = dn = 0
+        if up + dn < 10:      # 成分股太少的细分概念，参考意义弱
+            continue
+
+        try:
+            # 腾讯 zljlr 单位是万元，统一换算成元，跟东财 f62 口径一致
+            net_inflow = float(it.get("zljlr")) * 10000
+        except (TypeError, ValueError):
+            net_inflow = None
+
+        leader = str(((it.get("lzg") or {}).get("name")) or "").strip()
+        out.append({
+            "name": name, "pct": pct, "up": up, "dn": dn,
+            "leader": leader, "net_inflow": net_inflow,
+        })
+
+    out.sort(key=lambda r: -r["pct"])
+    return out[:limit]
+
+
+def fetch_hot_concepts(top_n: int = 5) -> List[Dict[str, Any]]:
+    """今日热门概念。优先腾讯，失败再试东方财富。"""
+    rows = _fetch_from_tencent(top_n * 10)
+    if rows:
+        return rows
+    logger.info("[热门板块] 腾讯无数据，回退东方财富")
+    return _fetch_from_eastmoney(top_n * 10)
 
 
 def _etf_for(concept: str) -> Optional[Tuple[str, str]]:
