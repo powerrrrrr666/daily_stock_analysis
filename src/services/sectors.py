@@ -162,10 +162,12 @@ def _sector_news(concept: str, keys: List[str]) -> Optional[str]:
 
     try:
         client = TavilyClient(api_key=keys[0])
+        # topic="news" 必须加：默认 general 会把百科、教程排前面，
+        # 2026-11-19 实跑搜回「半导体 - 维基百科」这种，对判断毫无用处。
         resp = client.search(
-            query=f"{concept} 板块 上涨 原因 最新消息",
-            search_depth="basic",
-            max_results=6,
+            query=f"{concept} 板块 最新消息",
+            search_depth="basic", topic="news",
+            max_results=8,
             days=3,
         )
     except Exception as exc:  # noqa: BLE001
@@ -178,6 +180,9 @@ def _sector_news(concept: str, keys: List[str]) -> Optional[str]:
         if not title:
             continue
         if not _relevant(title):
+            continue
+        if any(j in title for j in ("百科", "wiki", "维基", "知乎", "问答", "知道",
+                                    "文库", "教程", "入门", "什么是", "全讲透", "一文", "官网")):
             continue
         title = title.replace("\n", " ").strip()
         if len(title) > 60:

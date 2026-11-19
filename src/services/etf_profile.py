@@ -54,6 +54,10 @@ _POSITION_LABEL = {
 }
 
 # 信号类型：从新闻标题里读出来的"发生了什么"
+# 搜索结果里这些是常青内容（百科/教程/问答），对判断"今天为什么涨"毫无用处
+_JUNK_TITLE = ("百科", "wiki", "维基", "知乎", "问答", "知道", "文库", "教程",
+               "入门", "什么是", "全讲透", "一文", "官网", "首页")
+
 _SIGNAL_RULES: List[Tuple[str, Tuple[str, ...]]] = [
     ("supply_cut", ("出口管制", "出口限制", "禁令", "断供", "封锁", "许可证", "实体清单", "关税")),
     ("demand_boost", ("扩产", "订单", "招标", "需求爆发", "涨价", "提价", "供不应求")),
@@ -154,9 +158,11 @@ def fetch_news(query: str, days: int = 7, max_results: int = 5) -> List[str]:
         return []
     try:
         client = TavilyClient(api_key=keys[0])
+        # topic="news" 是关键：默认 general 会返回百科和教程，
+        # 2026-11-19 首次实跑就搜回「半导体 - 维基百科」这种，全废。
         resp = client.search(
-            query=query, search_depth="basic",
-            max_results=max_results, days=days,
+            query=query, search_depth="basic", topic="news",
+            max_results=max_results + 3, days=days,
         )
     except Exception as exc:  # noqa: BLE001
         logger.info("[ETF画像] 新闻搜索失败：%s: %s", type(exc).__name__, exc)
@@ -165,8 +171,13 @@ def fetch_news(query: str, days: int = 7, max_results: int = 5) -> List[str]:
     out: List[str] = []
     for r in (resp.get("results") or []):
         title = str(r.get("title") or "").strip().replace("\n", " ")
-        if title and title not in out:
-            out.append(title[:70] + ("…" if len(title) > 70 else ""))
+        if not title or title in out:
+            continue
+        if any(j in title for j in _JUNK_TITLE):
+            continue
+        out.append(title[:70] + ("…" if len(title) > 70 else ""))
+        if len(out) >= max_results:
+            break
     return out
 
 
@@ -194,7 +205,7 @@ def build_etf_thesis(name: str, code: str, query_hint: str = "") -> Dict[str, An
     # ---- 第二层：新闻
     position = classify_position(name)
     result["position"] = _POSITION_LABEL.get(position, "")
-    query = query_hint or query_of(name)
+    query = query_hint or f"{query_of(name)} 板块 最新消息"
     titles = fetch_news(query)
     if titles:
         result["news_line"] = "；".join(titles[:2])
