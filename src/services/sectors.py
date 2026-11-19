@@ -504,6 +504,7 @@ def build_etf_positions(etf_positions: Optional[Dict[str, Dict[str, Any]]] = Non
     只把精度、振幅门槛、单边强势阈值换成 ETF 口径，避免两边结论打架。
     失败返回空列表，不影响主报告。
     """
+    from src.services.etf_profile import build_etf_thesis
     from src.services.forecast import (_forecast_one, _t_plan_one, _take_profit_one,
                                        build_next_action, TP_MIN_GAIN_ETF)
     from src.services.positions import _evaluate
@@ -564,9 +565,16 @@ def build_etf_positions(etf_positions: Optional[Dict[str, Dict[str, Any]]] = Non
                 min_gain=TP_MIN_GAIN_ETF, resistance=detail.get("high20"),
             )
 
+            etf_name = info.get("name") or detail.get("name") or code
+            try:
+                thesis = build_etf_thesis(etf_name, code)
+            except Exception as exc:  # noqa: BLE001
+                logger.info("[ETF持仓] %s 画像失败：%s: %s", code, type(exc).__name__, exc)
+                thesis = {}
+
             rows.append({
                 "code": code,
-                "name": info.get("name") or detail.get("name") or code,
+                "name": etf_name,
                 "cost": cost,
                 "shares": shares,
                 "price": price,
@@ -591,6 +599,8 @@ def build_etf_positions(etf_positions: Optional[Dict[str, Dict[str, Any]]] = Non
                 "tp_price": tp.get("tp_price"),
                 "tp_line": tp.get("tp_line"),
                 "tp_reason": tp.get("tp_reason"),
+                # 底层资产画像（持仓 / 新闻 / 方向），任一缺失就少一行
+                **thesis,
                 # 参考位
                 "ma5": market["ma5"],
                 "ma20": market["ma20"],
