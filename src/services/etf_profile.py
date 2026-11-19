@@ -21,10 +21,13 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
+import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -81,8 +84,11 @@ _IMPACT_MATRIX: Dict[Tuple[str, str], Tuple[str, str]] = {
 }
 
 
-def _get(url: str, timeout: int = _TIMEOUT) -> str:
-    req = urllib.request.Request(url, headers=_UA)
+def _get(url: str, timeout: int = _TIMEOUT, referer: Optional[str] = None) -> str:
+    headers = dict(_UA)
+    if referer:
+        headers["Referer"] = referer
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read().decode("utf-8", "replace")
 
@@ -147,6 +153,67 @@ def _signal_types(titles: List[str]) -> List[str]:
         if any(k in joined for k in keys):
             hits.append(sig)
     return hits
+
+
+def fetch_eastmoney_news(keyword: str, days: int = 7, limit: int = 3) -> List[str]:
+    """东方财富资讯搜索 —— 中文原生，按发布时间倒序。
+
+    相比 Tavily 的优势：不用密钥、不会被百科/股吧污染、每条都带精确发布时间。
+    代价是搜索走全文匹配，标题可能不含关键词，所以这里强制要求标题命中。
+
+    2026-11-20 实测：「算力」返回网易/界面/财联社等实时稿件，
+    最新一条距今 40 分钟内，时效性远好于通用搜索引擎。
+    """
+    kw = (keyword or "").strip()
+    if not kw:
+        return []
+    param = {
+        "uid": "", "keyword": kw, "type": ["cmsArticleWebOld"],
+        "client": "web", "clientType": "web", "clientVersion": "curr",
+        "param": {"cmsArticleWebOld": {
+            "searchScope": "default", "sort": "time",
+            "pageIndex": 1, "pageSize": 25, "preTag": "", "postTag": "",
+        }},
+    }
+    url = ("https://search-api-web.eastmoney.com/search/jsonp?cb=x&param="
+           + urllib.parse.quote(json.dumps(param, ensure_ascii=False)))
+    try:
+        raw = _get(url, referer="https://so.eastmoney.com/")
+        body = raw[raw.index("(") + 1: raw.rindex(")")]
+        data = json.loads(body)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[ETF画像] 东财资讯搜索失败（%s）：%s: %s", kw, type(exc).__name__, exc)
+        return []
+
+    items = ((data.get("result") or {}).get("cmsArticleWebOld")) or []
+    cutoff = datetime.now() - timedelta(days=days)
+    shorts = [kw[i:i + 2] for i in range(len(kw) - 1)] or [kw]
+
+    out: List[str] = []
+    seen: List[str] = []
+    for it in items:
+        title = str(it.get("title") or "").strip().replace("\n", " ")
+        if not title:
+            continue
+        # 标题必须真的提到这个主题，否则就是全文碰巧命中
+        if kw not in title and not any(sh in title for sh in shorts):
+            continue
+        if any(j in title for j in _JUNK_TITLE):
+            continue
+        try:
+            pub = datetime.strptime(str(it.get("date") or ""), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+        if pub < cutoff:
+            continue
+        head = title[:18]
+        if any(head in h or h in head for h in seen):
+            continue
+        seen.append(head)
+        out.append(title[:70] + ("…" if len(title) > 70 else ""))
+        if len(out) >= limit:
+            break
+    return out
 
 
 def fetch_news(query: str, days: int = 7, max_results: int = 5) -> List[str]:
@@ -217,25 +284,32 @@ def build_etf_thesis(name: str, code: str, pct_chg: Optional[float] = None,
     # ---- 第二层：新闻
     position = classify_position(name)
     result["position"] = _POSITION_LABEL.get(position, "")
-    query = query_hint or f"{query_of(name)} 板块 最新消息"
-    titles = fetch_news(query)
+    query = query_hint or query_of(name)
+    titles = fetch_eastmoney_news(query)
     if titles:
         result["news_line"] = "；".join(titles[:2])
 
     # ---- 第三层：方向（只在矩阵有解时给）
     sigs = _signal_types(titles)
+    verdicts = []
     for sig in sigs:
-        verdict = _IMPACT_MATRIX.get((position, sig))
-        if verdict:
-            direction, why = verdict
-            # 新闻说多头、今天却大跌 3% 以上 → 这条新闻多半已经被消化，方向不给
-            if pct_chg is not None:
-                if direction == "偏多" and pct_chg <= -3:
-                    break
-                if direction == "偏空" and pct_chg >= 3:
-                    break
+        v = _IMPACT_MATRIX.get((position, sig))
+        if v:
+            verdicts.append(v)
+
+    # 同一批新闻里多空信号打架时不给方向。
+    # 2026-11-20 实例：「费城半导体指数回吐涨幅转跌」+「燧原科技在手订单充沛」，
+    # 一条利空一条利多，硬选一个就是误导。
+    directions = {d for d, _ in verdicts}
+    if len(directions) == 1:
+        direction, why = verdicts[0]
+        # 新闻说多头、今天却大跌 3% 以上 → 这条新闻多半已经被消化，方向不给
+        blocked = pct_chg is not None and (
+            (direction == "偏多" and pct_chg <= -3) or
+            (direction == "偏空" and pct_chg >= 3)
+        )
+        if not blocked:
             result["thesis_line"] = f"{direction}——{why}"
-            break
     # 判不出就不写。写「多空交织，以盘面为准」看着周全，其实一句信息都没有。
 
     return result

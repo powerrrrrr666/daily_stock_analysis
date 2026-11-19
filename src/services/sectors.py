@@ -137,62 +137,25 @@ def fetch_hot_concepts(top_n: int = 5) -> List[Dict[str, Any]]:
     return out
 
 
-def _sector_news(concept: str, keys: List[str]) -> Optional[str]:
-    """搜一条该板块最近的消息面催化，返回可直接引用的标题串。
+def _sector_news(concept: str, keys: Optional[List[str]] = None) -> Optional[str]:
+    """取该板块最近的消息面标题。
 
-    只引用搜索结果里**标题包含板块关键词**的条目，避免把无关新闻硬安上去。
-    任何异常（未装 tavily、无 key、超时、无结果）都返回 None，让调用方降级。
+    2026-11-20 从 Tavily 换成东方财富资讯搜索：Tavily 实跑两次都返回
+    百科条目和股吧讨论区，中文财经场景不适用。东财是原生中文源，
+    带精确发布时间，按时间倒序，且不需要密钥。
+    keys 参数保留只是为了兼容旧调用，已不再使用。
     """
-    if not keys:
-        return None
     try:
-        from tavily import TavilyClient
-    except ImportError:
-        return None
-
-    def _relevant(title: str) -> bool:
-        """标题里必须真提到这个板块，否则就是搜索结果串味。
-
-        先试完整板块名；不行再退到任意连续 2 字——
-        新闻标题常写「半导体材料」而不写「光刻胶」，只认全名会漏掉一半。
-        """
-        if concept in title:
-            return True
-        return any(concept[i:i + 2] in title for i in range(len(concept) - 1))
-
-    try:
-        client = TavilyClient(api_key=keys[0])
-        # topic="news" 必须加：默认 general 会把百科、教程排前面，
-        # 2026-11-19 实跑搜回「半导体 - 维基百科」这种，对判断毫无用处。
-        resp = client.search(
-            query=f"{concept} 板块 最新消息",
-            search_depth="basic", topic="news",
-            max_results=8,
-            days=3,
-        )
+        from src.services.etf_profile import fetch_eastmoney_news
+        # 板块名常带「概念/风格/板块」后缀，连在一起几乎不会出现在新闻标题里
+        kw = concept
+        for suffix in ("概念", "风格", "板块", "指数"):
+            kw = kw.replace(suffix, "")
+        items = fetch_eastmoney_news(kw or concept, days=3, limit=2)
+        return "；".join(items) if items else None
     except Exception as exc:  # noqa: BLE001
-        logger.info("[热门板块] %s 消息面搜索失败：%s: %s", concept, type(exc).__name__, exc)
+        logger.info("[热门板块] %s 消息面获取失败：%s: %s", concept, type(exc).__name__, exc)
         return None
-
-    picked: List[str] = []
-    for r in (resp.get("results") or []):
-        title = str(r.get("title") or "").strip()
-        if not title:
-            continue
-        if not _relevant(title):
-            continue
-        if any(j in title for j in ("百科", "wiki", "维基", "知乎", "问答", "知道",
-                                    "文库", "教程", "入门", "什么是", "全讲透", "一文", "官网")):
-            continue
-        title = title.replace("\n", " ").strip()
-        if len(title) > 60:
-            title = title[:60] + "…"
-        if title not in picked:
-            picked.append(title)
-        if len(picked) >= 2:
-            break
-
-    return "；".join(picked) if picked else None
 
 
 def _hot_why(pct: float, up: int, dn: int, leader: str,
@@ -377,12 +340,12 @@ def build_sector_picks(top_n: int = 5) -> List[Dict[str, Any]]:
         })
 
     # 消息面：并发搜前几个板块的驱动新闻，任一失败都不影响其他字段
-    if rows and tavily_keys:
+    if rows:
         try:
             from concurrent.futures import ThreadPoolExecutor
 
             with ThreadPoolExecutor(max_workers=3) as pool:
-                found = list(pool.map(lambda r: _sector_news(r["concept"], tavily_keys), rows))
+                found = list(pool.map(lambda r: _sector_news(r["concept"]), rows))
             for row, news in zip(rows, found):
                 row["news"] = news
             hit = sum(1 for n in found if n)
