@@ -189,16 +189,17 @@ def _hot_panel(pct: float, up: int, dn: int, leader: str,
     breadth = (up / total * 100) if total else 0
     parts: List[str] = []
 
+    # 具体家数第一行已经写了，这里只给结论，避免同一句话读两遍
     if breadth >= 80:
-        parts.append(f"{up} 只涨 {dn} 只跌，几乎全线飘红")
+        parts.append("几乎全线飘红")
     elif breadth >= 60:
-        parts.append(f"{up} 涨 {dn} 跌，多数跟涨")
+        parts.append("多数跟涨")
     elif breadth >= 40:
-        parts.append(f"{up} 涨 {dn} 跌，内部分化明显")
+        parts.append("内部分化明显")
     elif pct > 0:
-        parts.append(f"只有 {up} 只涨、{dn} 只跌，靠少数票拉起来")
+        parts.append("少数票拉动")
     else:
-        parts.append(f"{up} 涨 {dn} 跌，普跌格局")
+        parts.append("普跌格局")
 
     if net_inflow:
         yi = net_inflow / 1e8
@@ -379,9 +380,12 @@ def _advice(quote: Dict[str, Any], concept_pct: float, mood: str = "") -> Tuple[
     if ma20 and price and price < ma20:
         gap = (price / ma20 - 1) * 100
         if gap <= -8:
+            hot = concept_pct >= 1.5
+            tail = ("**板块热 ≠ 趋势好**，别抄这个底" if hot
+                    else "板块本身也在跌，ETF 还破了位，别接")
             return "🔻 趋势坏", (
                 f"ETF 现价 {price} 比 20 日线 {ma20} 低 {abs(gap):.1f}%，中期趋势明显走坏——"
-                f"**板块热 ≠ 趋势好**，别抄这个底，等站回 {ma20} 再谈"
+                f"{tail}，等站回 {ma20} 再谈"
             )
         return "⏸ 等站回", f"ETF 现价 {price} 仍在 20 日线 {ma20} 下方（{gap:.1f}%），站回 {ma20} 再买"
     if ma20 and price:
