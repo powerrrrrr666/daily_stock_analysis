@@ -56,11 +56,13 @@ _POSITION_LABEL = {
 # 信号类型：从新闻标题里读出来的"发生了什么"
 # 搜索结果里这些是常青内容（百科/教程/问答），对判断"今天为什么涨"毫无用处
 _JUNK_TITLE = ("百科", "wiki", "维基", "知乎", "问答", "知道", "文库", "教程",
-               "入门", "什么是", "全讲透", "一文", "官网", "首页")
+               "入门", "什么是", "全讲透", "一文", "官网", "首页",
+               "讨论区", "股吧", "论坛", "社区", "行情中心", "基金吧")
 
 _SIGNAL_RULES: List[Tuple[str, Tuple[str, ...]]] = [
     ("supply_cut", ("出口管制", "出口限制", "禁令", "断供", "封锁", "许可证", "实体清单", "关税")),
-    ("demand_boost", ("扩产", "订单", "招标", "需求爆发", "涨价", "提价", "供不应求")),
+    ("demand_boost", ("扩产", "订单", "招标", "需求爆发", "需求加速", "需求释放",
+                      "涨价", "提价", "供不应求", "高景气", "满产")),
     ("policy_support", ("国产替代", "自主可控", "政策支持", "补贴", "大基金", "专项")),
     ("price_drop", ("降价", "价格战", "产能过剩", "去库存")),
 ]
@@ -169,19 +171,26 @@ def fetch_news(query: str, days: int = 7, max_results: int = 5) -> List[str]:
         return []
 
     out: List[str] = []
+    seen: List[str] = []
     for r in (resp.get("results") or []):
         title = str(r.get("title") or "").strip().replace("\n", " ")
-        if not title or title in out:
+        if not title:
             continue
         if any(j in title for j in _JUNK_TITLE):
             continue
+        # 同一事件常被多家转载，标题前 18 字相同就当作重复
+        head = title[:18]
+        if any(head in seen_head or seen_head in head for seen_head in seen):
+            continue
+        seen.append(head)
         out.append(title[:70] + ("…" if len(title) > 70 else ""))
         if len(out) >= max_results:
             break
     return out
 
 
-def build_etf_thesis(name: str, code: str, query_hint: str = "") -> Dict[str, Any]:
+def build_etf_thesis(name: str, code: str, pct_chg: Optional[float] = None,
+                     query_hint: str = "") -> Dict[str, Any]:
     """产出 ETF 的三层信息。任何一层失败就少一层，不影响报告。
 
     返回字段：
@@ -189,6 +198,9 @@ def build_etf_thesis(name: str, code: str, query_hint: str = "") -> Dict[str, An
       news_line      在交易什么（新闻标题原文，最多 2 条）
       thesis_line    方向判断（判不出来为空）
       position       产业链位置（内部用）
+
+    pct_chg：当日涨跌幅。用来防「新闻与盘面背离」——搜到的常是几天前的旧闻，
+    标题喊利好、股价却在跌，这时候给方向就是误导，不如不说。
     """
     result: Dict[str, Any] = {"holdings_line": "", "news_line": "",
                               "thesis_line": "", "position": ""}
@@ -216,9 +228,14 @@ def build_etf_thesis(name: str, code: str, query_hint: str = "") -> Dict[str, An
         verdict = _IMPACT_MATRIX.get((position, sig))
         if verdict:
             direction, why = verdict
+            # 新闻说多头、今天却大跌 3% 以上 → 这条新闻多半已经被消化，方向不给
+            if pct_chg is not None:
+                if direction == "偏多" and pct_chg <= -3:
+                    break
+                if direction == "偏空" and pct_chg >= 3:
+                    break
             result["thesis_line"] = f"{direction}——{why}"
             break
-    if not result["thesis_line"] and titles:
-        result["thesis_line"] = "多空交织，暂时给不出干脆方向，以盘面走势为准"
+    # 判不出就不写。写「多空交织，以盘面为准」看着周全，其实一句信息都没有。
 
     return result

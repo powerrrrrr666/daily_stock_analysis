@@ -572,7 +572,7 @@ def build_etf_positions(etf_positions: Optional[Dict[str, Dict[str, Any]]] = Non
 
             etf_name = info.get("name") or detail.get("name") or code
             try:
-                thesis = build_etf_thesis(etf_name, code)
+                thesis = build_etf_thesis(etf_name, code, pct_chg=detail.get("pct"))
             except Exception as exc:  # noqa: BLE001
                 logger.info("[ETF持仓] %s 画像失败：%s: %s", code, type(exc).__name__, exc)
                 thesis = {}
