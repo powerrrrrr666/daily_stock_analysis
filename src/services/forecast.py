@@ -52,6 +52,7 @@ TP_NOW = "🟢 可止盈"
 TP_TARGET = "🎯 目标止盈"
 TP_WATCH = "👀 等反弹减压"
 TP_NA = "⚪ 不适用"
+TP_SKIP = "⏸ 无需减压"
 
 
 def _num(value: Any) -> Optional[float]:
@@ -380,6 +381,9 @@ def _take_profit_one(price: float, cost: float, market: Dict[str, Optional[float
     # 操作信号给的减仓价优先；但它必须高于现价才有意义
     if preferred_level and preferred_level > price:
         res = preferred_level
+    if res and price and (res / price - 1) * 100 > 25:
+        # 压力位太远等于没有参照（新上市 ETF 的 20 日高点常是 1.0 这种发行价）
+        res = None
     ma10 = market.get("ma10")
     ma5 = market.get("ma5")
 
@@ -446,6 +450,12 @@ def _take_profit_one(price: float, cost: float, market: Dict[str, Optional[float
                 "tp_reason": "已站上原压力位，没有更高的参照价，按回撤幅度止盈"}
 
     # 3) 浮亏 —— 不是止盈，是反弹减压
+    #    浮亏太小时减仓是白折腾：一笔佣金 5 元，减 200 份的差价还未必够付手续费
+    if pnl > -3.0:
+        return {**base, "tp_state": TP_SKIP, "tp_price": None,
+                "tp_line": f"浮亏 {abs(pnl):.1f}%，幅度太小——减仓省不下钱（手续费先吃掉），先拿着",
+                "tp_reason": "浮亏不足 3%，不构成减压需求"}
+
     if res and res > price:
         gap = (res / price - 1) * 100
         # 压力位就在头顶（2% 内）——「反弹到 X 再减」等于说「马上就到」，改成直接说现价可减
@@ -466,6 +476,15 @@ def _take_profit_one(price: float, cost: float, market: Dict[str, Optional[float
                 f"这条线过不去就别硬等成本价")
         return {**base, "tp_state": TP_WATCH, "tp_price": round(res, d), "tp_line": line,
                 "tp_reason": "没有浮盈谈不上止盈，上方压力位是用来减仓降风险的"}
+
+    # 没有有效压力位（或压力位太远）→ 用成本价当减压参照
+    if cost and cost > price:
+        need = (cost / price - 1) * 100
+        if need <= 30:
+            line = (f"上方没有有效压力位，浮亏 {abs(pnl):.1f}%——反弹到成本 **{fmt(cost)}**"
+                    f"（+{need:.1f}%）先减 {qty}，把亏损抹平再说")
+            return {**base, "tp_state": TP_WATCH, "tp_price": round(cost, d), "tp_line": line,
+                    "tp_reason": "缺有效压力位，以成本价作为减压参照"}
 
     return {**base, "tp_state": TP_NA, "tp_price": None,
             "tp_line": "上方压力位数据缺失，暂无明确减仓位；等反弹到 MA20 附近再评估",

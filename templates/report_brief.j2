@@ -15,10 +15,9 @@
 # 📈 自选股简报（{{ report_date }}{{ ' ' ~ mode_label if mode_label else '' }}）
 
 > {{ results|length }} 只自选股 ｜ 🟢 买入 {{ buy_count }} · 🟡 观望 {{ hold_count }} · 🔴 减仓 {{ sell_count }}
-{%- if market_status_line %}
-> {{ market_status_line }}
+{%- if data_baseline_line %}
+> {{ data_baseline_line }}
 {%- endif %}
-> {{ data_baseline_line or ('📊 数据基准：**' ~ report_date ~ ' 收盘（当日完整数据）**') }}
 {%- if data_integrity_line %}
 > {{ data_integrity_line }}
 {%- endif %}
@@ -79,6 +78,9 @@
 ---
 
 ## 🔥 热门板块 · ETF 参考
+{%- if sector_items and sector_items[0].concept_pct < 1.0 %}
+> 今日没有强主线，最强的「{{ sector_items[0].concept }}」也只有 {{ '%+.2f'|format(sector_items[0].concept_pct) }}%，下面仅供观察，不建议现在追。
+{%- endif %}
 
 {%- for s in sector_items %}
 - **{{ s.concept }}**　{{ '%+.2f'|format(s.concept_pct) }}%（涨 {{ s.up }} / 跌 {{ s.dn }}）　→　**{{ s.etf_name }} {{ s.etf_code }}**　现价 {{ s.etf_price }}（{{ '%+.2f'|format(s.etf_pct) }}%）　{{ s.label }}

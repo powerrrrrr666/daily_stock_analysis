@@ -14,6 +14,7 @@
 import json
 import logging
 import os
+import time
 import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -29,6 +30,8 @@ _BLOCK_WORDS = (
     "股权转让", "参股", "转债", "标的", "标准普尔", "MSCI", "富时", "HS300",
     "上证", "深证", "创业板综", "题材股", "热股", "涨停", "跌停", "连板",
     "强势", "活跃", "壳资源", "ST股", "同花顺", "证金", "汇金", "QFII",
+    # 2026-11-19 新增：这几类是资金属性/风格指数，不是可交易的产业主线
+    "大基金", "做市商", "茅指数", "宁组合", "证金持股", "机构调研",
 )
 
 # 概念关键词 -> (ETF 代码, 简称)。按顺序匹配，先命中先用。
@@ -61,8 +64,11 @@ _ETF_RULES: List[Tuple[Tuple[str, ...], str, str]] = [
 ]
 
 
-def _get(url: str) -> str:
-    req = urllib.request.Request(url, headers=_UA)
+def _get(url: str, referer: Optional[str] = None) -> str:
+    headers = dict(_UA)
+    if referer:
+        headers["Referer"] = referer
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
         return r.read().decode("utf-8", "replace")
 
@@ -75,15 +81,27 @@ def _get_gbk(url: str) -> str:
 
 def fetch_hot_concepts(top_n: int = 5) -> List[Dict[str, Any]]:
     """取今日涨幅靠前的概念板块（已剔除统计类/资金类概念）。"""
-    url = (
-        "https://push2.eastmoney.com/api/qt/clist/get"
-        "?pn=1&pz=200&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3"
+    # 2026-11-19 东财主域名返回 502（IP 被临时限流），整块热门板块直接消失。
+    # 改成三个域名轮询 + 每个重试一次，任一个通就够用。
+    path = (
+        "/api/qt/clist/get?pn=1&pz=200&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3"
         "&fields=f3,f12,f14,f62,f104,f105,f128"
     )
-    try:
-        data = json.loads(_get(url))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[热门板块] 拉取概念排行失败：%s: %s", type(exc).__name__, exc)
+    data = None
+    last_err: Any = None
+    for host in ("push2.eastmoney.com", "82.push2.eastmoney.com", "push2delay.eastmoney.com"):
+        for _ in range(2):
+            try:
+                data = json.loads(_get(f"https://{host}{path}", referer="https://quote.eastmoney.com/"))
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_err = exc
+                time.sleep(1)
+        if data:
+            break
+    if not data:
+        logger.warning("[热门板块] 拉取概念排行失败（三个域名都试过）：%s: %s",
+                       type(last_err).__name__, last_err)
         return []
 
     diff = ((data.get("data") or {}).get("diff")) or []

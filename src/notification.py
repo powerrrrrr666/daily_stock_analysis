@@ -1928,23 +1928,21 @@ class NotificationService(
                 _bj = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=8)
                 _mins = _bj.hour * 60 + _bj.minute
                 if _mins < 11 * 60 + 30:
-                    # 11:30 前的临时盘中请求：拿到的是实时快照，不能说成「上午收盘」
+                    # 11:30 前的临时盘中请求：数据不完整，必须提示
                     data_scope = '盘中'
                     data_baseline_line = (
-                        f"📊 数据基准：**{report_date} 盘中实时快照（{_bj:%H:%M}）** ｜ "
-                        f"距上午收盘还有 {11 * 60 + 30 - _mins} 分钟，数据仍在变动"
+                        f"⏱ 盘中快照 **{_bj:%H:%M}**，距上午收盘还有 "
+                        f"{11 * 60 + 30 - _mins} 分钟，数据仍在变动"
                     )
                 else:
                     data_scope = '上午收盘'
-                    data_baseline_line = (
-                        f"📊 数据基准：**{report_date} 上午收盘（半日数据）** ｜ 用于午后操作"
-                    )
+                    data_baseline_line = ""
                 action_heading = "先说人话：下午怎么做"
                 signal_heading = "🎯 操作信号（下午怎么做）"
             else:
                 mode_label = '收盘'
                 data_scope = '当日'
-                data_baseline_line = f"📊 数据基准：**{report_date} 收盘（当日完整数据）**"
+                data_baseline_line = ""
                 action_heading = "先说人话：明天怎么做"
                 signal_heading = "🎯 操作信号（明天怎么做）"
 
@@ -1967,9 +1965,7 @@ class NotificationService(
                         f"缺 {len(missing)} 只（{'、'.join(missing[:6])}）"
                     )
                 else:
-                    data_integrity_line = (
-                        f"✅ 数据完整性：{len(expected)} 只全部取到{data_scope}数据"
-                    )
+                    data_integrity_line = ""
 
             # 持仓成本与补仓机会（读 positions.json，失败不影响主报告）
             positions_rows = []
