@@ -102,6 +102,16 @@
 
 > 判断逻辑：板块热度 + ETF 自身趋势双重把关。**板块热但 ETF 跌破 20 日线时不建议参与**。单只 ETF 仓位建议 ≤ 总仓位 10%。
 {%- endif %}
+{%- if news_outlook %}
+
+**📡 消息面预期（盘面还没反应）**
+{%- for n in news_outlook %}
+- **{{ n.label }}**　{{ n.etf_code }}　现价 {{ n.etf_price }}（{{ '%+.2f'|format(n.etf_pct) }}%）{% if n.etf_pct is not none and n.etf_pct < 1 %}　**还没动**{% endif %}
+  - {{ n.title }}
+{%- endfor %}
+
+> 这些是消息面有催化、但今天盘面还没炒起来的。**只是线索，不是买点**——等盘面出现放量确认再动手。
+{%- endif %}
 
 ---
 {%- for e in enriched %}

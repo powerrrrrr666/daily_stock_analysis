@@ -160,7 +160,7 @@ def _sector_news(concept: str, keys: Optional[List[str]] = None) -> List[str]:
 # 新闻标题的利好/利空判断。只认明确的事件词，不做语义推断。
 _BULLISH_KW = ("中标", "订单", "签约", "扩产", "涨价", "提价", "突破", "量产", "获批",
                "政策", "补贴", "增持", "回购", "预增", "超预期", "落地", "合作",
-               "开工", "投产", "放量", "新高")
+               "开工", "投产", "放量", "新高", "利好", "催化", "涨停潮", "获批上市")
 _BEARISH_KW = ("澄清", "否认", "亏损", "减持", "问询", "处罚", "风险提示",
                "下滑", "预减", "终止", "失败", "下调", "被查", "违规")
 
@@ -400,6 +400,71 @@ def _advice(quote: Dict[str, Any], concept_pct: float, mood: str = "") -> Tuple[
             f"可小仓参与（≤总仓位 10%），跌破 {ma20} 走"
         )
     return "🟡 可关注", f"板块{word} {abs(concept_pct):.1f}%，ETF 涨 {pct:.1f}%，均线数据缺失，先小仓试探"
+
+
+# 用来捞「当日消息面催化」的搜索词。分组是为了覆盖不同类型的利好，
+# 每组取最近 24 小时的几条，再去重合并。
+_NEWS_OUTLOOK_QUERIES = (
+    "政策 利好", "中标 订单", "涨价 提价", "获批 量产", "技术突破",
+)
+
+
+def build_news_outlook(top_n: int = 3, exclude_codes: Optional[set] = None) -> List[Dict[str, Any]]:
+    """从当日要闻里找「有催化但今天还没炒起来」的板块。
+
+    与「热门板块」的区别：热门板块是**已经涨了**的（涨幅榜），
+    这里是**消息面指向、但盘面还没反应**的，属于前瞻部分。
+
+    做法不做 LLM 推断，纯规则：
+      1. 用几组利好向的搜索词捞最近 24 小时的要闻
+      2. 标题必须含利好消息词，且不含利空词
+      3. 用 ETF 关键词表反查这属于哪个板块
+    宁可漏掉，也不能把「某公司澄清传闻」这种算成利好。
+
+    exclude_codes：已经在「热门板块」里出现过的 ETF，避免同一只票讲两遍。
+    """
+    from src.services.etf_profile import fetch_eastmoney_news
+
+    seen_titles = set()
+    hits: List[Tuple[str, Tuple[str, str]]] = []
+    for query in _NEWS_OUTLOOK_QUERIES:
+        try:
+            titles = fetch_eastmoney_news(query, days=1, limit=4)
+        except Exception:  # noqa: BLE001
+            continue
+        for title in titles:
+            if title in seen_titles:
+                continue
+            seen_titles.add(title)
+            if any(k in title for k in _BEARISH_KW):
+                continue
+            if not any(k in title for k in _BULLISH_KW):
+                continue
+            match = _etf_for(title)
+            if match:
+                hits.append((title, match))
+
+    rows: List[Dict[str, Any]] = []
+    used_etf = set(exclude_codes or ())
+    for title, (code, short) in hits:
+        if code in used_etf:
+            continue
+        used_etf.add(code)
+        quote = _quote_and_ma20(code)
+        # 今天已经炒起来的不算「前瞻」——涨幅 3% 以上说明市场已经在反应，
+        # 这类归「热门板块」那一段，放这里会让人误以为还没启动
+        if quote and (quote.get("pct") or 0) >= 3:
+            continue
+        rows.append({
+            "title": title,
+            "label": short,
+            "etf_code": code,
+            "etf_price": quote["price"] if quote else None,
+            "etf_pct": quote["pct"] if quote else None,
+        })
+        if len(rows) >= top_n:
+            break
+    return rows
 
 
 def build_sector_picks(top_n: int = 5) -> List[Dict[str, Any]]:

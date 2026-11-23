@@ -1993,7 +1993,7 @@ class NotificationService(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("操作信号扫描失败，报告将不含该栏目：%s: %s", type(exc).__name__, exc)
 
-            # 热门板块 + ETF 参考（东财概念排行 + 腾讯行情，失败不影响主报告）
+            # 热门板块 + ETF 参考（腾讯概念排行 + 行情，失败不影响主报告）
             sector_items: List[dict] = []
             try:
                 from src.services.sectors import build_sector_picks
@@ -2002,6 +2002,19 @@ class NotificationService(
                 logger.info("热门板块：%s 个（已匹配 ETF）", len(sector_items))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("热门板块获取失败，报告将不含该栏目：%s: %s", type(exc).__name__, exc)
+
+            # 消息面预期：有催化但盘面还没反应的板块（前瞻，失败不影响主报告）
+            news_outlook: List[dict] = []
+            try:
+                from src.services.sectors import build_news_outlook
+
+                news_outlook = build_news_outlook(
+                    top_n=3, exclude_codes={s.get("etf_code") for s in sector_items}
+                )
+                if news_outlook:
+                    logger.info("消息面预期：%s 条", len(news_outlook))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("消息面预期计算失败：%s: %s", type(exc).__name__, exc)
 
             # 走势预判 + 持仓做T建议（失败不影响主报告）
             forecasts: List[dict] = []
@@ -2139,6 +2152,7 @@ class NotificationService(
                     "holdings_board": holdings_board,
                     "signal_map": signal_map,
                     "sector_items": sector_items,
+                    "news_outlook": news_outlook,
                     "etf_rows": etf_rows,
                     **counts_override,
                 },
