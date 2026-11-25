@@ -135,7 +135,8 @@ def fetch_track_index(code: str) -> Optional[Dict[str, str]]:
         logger.info("[ETF画像] %s 跟踪指数获取失败：%s: %s", code, type(exc).__name__, exc)
         return None
     name = str(data.get("INDEXNAME") or "").strip()
-    if not name:
+    # 主动管理型 ETF 没有跟踪指数，接口会返回 "--"
+    if not name or name in ("--", "-", "无", "N/A", "None"):
         return None
     return {"name": name, "code": str(data.get("INDEXCODE") or "").strip()}
 
@@ -291,7 +292,13 @@ def build_etf_thesis(name: str, code: str, pct_chg: Optional[float] = None,
 
     # ---- 第一层：跟踪指数 + 持仓
     index = fetch_track_index(code)
-    index_txt = f"跟踪{index['name']}" if index else ""
+    if index:
+        index_txt = f"跟踪{index['name']}"
+    elif "主动" in (name or ""):
+        # 主动 ETF 没有跟踪标的，说明白比留空好
+        index_txt = "主动管理，不跟踪指数"
+    else:
+        index_txt = ""
     hold = fetch_holdings(code)
     if hold:
         parts = [f"{n} {p}%" if p else n for n, p in hold["items"]]

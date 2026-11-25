@@ -86,6 +86,7 @@ def _market(result: Any) -> Dict[str, Optional[float]]:
     va = (dp.get("volume_analysis") or {}) if isinstance(dp, dict) else {}
     return {
         "price": _num(snap.get("price")) or _num(snap.get("close")) or _num(pp.get("current_price")),
+        "open": _num(snap.get("open")),
         "pct_chg": _num(snap.get("pct_chg")),
         "amplitude": _num(snap.get("amplitude")),
         "high": _num(snap.get("high")),
@@ -98,6 +99,81 @@ def _market(result: Any) -> Dict[str, Optional[float]]:
         "resistance": _num(pp.get("resistance_level")),
         "volume_ratio": _num(va.get("volume_ratio")),
     }
+
+
+# ---------------------------------------------------------------- 今日走势
+def _day_story(price: float, market: Dict[str, Optional[float]], digits: int = 2) -> str:
+    """用一句话说清「今天为什么涨/跌」——看的是日内形态，不是均线。
+
+    和「走势预判」的分工：这段解释已经发生的事，那段推未来 3~5 天。
+
+    判断依据只有四个价：开盘、最高、最低、昨收，加上收盘价在当日区间的相对位置。
+    不看分时图也能还原大致形态（冲高回落 / 探底回升 / 尾盘走弱 / 强势收高）。
+    """
+    open_ = market.get("open")
+    high = market.get("high")
+    low = market.get("low")
+    prev = market.get("prev_close")
+    pct = market.get("pct_chg")
+    if not (price and high and low and prev):
+        return ""
+
+    d = digits
+    rng = high - low
+    pos = (price - low) / rng if rng > 0 else 0.5        # 收盘在当日区间的位置 0~1
+    upper = (high - price) / price * 100                  # 上影线
+    lower = (price - low) / price * 100                   # 下影线
+    base = open_ or prev                                 # 日内涨跌的基准是开盘价
+    dip = (base - low) / base * 100 if base else 0        # 开盘后往下砸了多少
+    rise = (high - base) / base * 100 if base else 0      # 开盘后往上冲了多少
+
+    head: List[str] = []
+    if open_:
+        gap = (open_ / prev - 1) * 100
+        if gap >= 0.5:
+            head.append(f"高开 {gap:.1f}%")
+        elif gap <= -0.5:
+            head.append(f"低开 {abs(gap):.1f}%")
+        else:
+            head.append("平开")
+
+    # 先看收盘位置，再看影线。反过来的话，一只强势收在最高的票
+    # 会因为「下影线 4%」被判成探底回升。
+    if pos >= 0.85:
+        if dip >= 1.0:
+            head.append("探底回升")
+            why = f"盘初一度砸到 {low:.{d}f}，尾盘一路拉到最高附近，下方承接强"
+        else:
+            head.append("收在最高附近")
+            why = "全天多头占优，收盘几乎顶在当日最高"
+    elif pos <= 0.15:
+        if rise >= 1.0:
+            head.append("冲高回落")
+            why = f"盘中最高 {high:.{d}f}，尾盘一路杀到最低附近，上方抛压重"
+        else:
+            head.append("收在最低附近")
+            why = "卖压集中在尾盘，收盘几乎踩在当日最低"
+    elif rise >= 1.5 and pos <= 0.45:
+        head.append("冲高回落")
+        why = f"盘中最高摸到 {high:.{d}f}，到收盘回吐了 {upper:.1f}%，上方抛压重、反弹没接住"
+    elif dip >= 1.5 and pos >= 0.55:
+        head.append("探底回升")
+        why = f"盘中最低砸到 {low:.{d}f}，尾盘拉回 {lower:.1f}%，下方有承接"
+    else:
+        head.append("区间震荡")
+        why = "全天在当日区间中部来回，多空没分出胜负"
+
+    move = ""
+    if pct is not None:
+        if pct >= 3:
+            move = "，属于强势"
+        elif pct <= -3:
+            move = "，跌势不轻"
+        elif abs(pct) < 0.5:
+            move = "，基本没动"
+
+    pct_txt = f"（{pct:+.2f}%）" if pct is not None else ""
+    return f"{'　'.join(head)}，收 {price:.{d}f}{pct_txt}；{why}{move}"
 
 
 # ---------------------------------------------------------------- 走势预判
@@ -210,6 +286,7 @@ def build_forecasts(results: List[Any], digits: int = 2) -> List[Dict[str, Any]]
             "code": _norm_code(getattr(result, "code", "")),
             "name": getattr(result, "name", "") or "",
             "price": round(price, digits),
+            "day_story": _day_story(price, market, digits=digits),
             **forecast,
         })
     # 偏强在前，偏弱在后

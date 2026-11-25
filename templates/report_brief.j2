@@ -167,6 +167,10 @@
 {%- set fc = (forecast_map or {}).get(result.code) %}
 {%- if fc %}
 
+{%- if fc and fc.day_story %}
+**今日走势**：{{ fc.day_story }}
+
+{%- endif %}
 **走势预判**：{{ fc.bias }}　{{ fc.note }}
 
 - 判断依据：{{ fc.basis }}
