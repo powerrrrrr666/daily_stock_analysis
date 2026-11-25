@@ -44,7 +44,10 @@
 {%- for x in etf_rows %}
 - **{{ x.name }} {{ x.code }}**{% if x.pct is not none %}　今日 {{ '%+.2f'|format(x.pct) }}%{% endif %}　{{ '%.3f'|format(x.cost) }}→{{ '%.3f'|format(x.price) }}（**{{ '%+.2f'|format(x.pnl_pct) }}%**{% if x.pnl_amount is not none %}，**{{ '%+.2f'|format(x.pnl_amount) }} 元**{% endif %}）{% if x.shares %}　{{ x.shares|int }}份{% endif %}　→ {{ x.next_action }}　｜ 补仓 {{ x.state }}　｜ 做T {{ x.t_verdict }}{% if x.t_line %}：{{ x.t_line }}{% endif %}
 {%- if x.holdings_line %}
-  - 🧭 **装的是什么**：{% if x.position %}{{ x.position }}　{% endif %}{{ x.holdings_line }}
+  - 🧭 **装的是什么**：{{ x.holdings_line }}
+{%- endif %}
+{%- if x.holdings_detail %}
+  - 📦 **主要持仓**：{{ x.holdings_detail }}
 {%- endif %}
 {%- if x.news_line %}
   - 📰 **在交易什么**：{{ x.news_line }}

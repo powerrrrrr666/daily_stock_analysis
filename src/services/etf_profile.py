@@ -124,6 +124,53 @@ def query_of(name: str) -> str:
     return (name or "").replace("ETF", "").strip()
 
 
+# 指数 → 一句话业务描述。只收录含义明确、不易说错的，
+# 查不到的就不硬编，只讲成分股和集中度。
+_INDEX_ROLE = {
+    "国证半导体芯片": "芯片设计、制造、设备、封测全覆盖",
+    "创业板算力基础设施": "算力运营与数据中心配套，产业链中游",
+    "中证半导体": "半导体全产业链",
+    "科创芯片": "科创板芯片，偏设计与设备",
+    "中证全指半导体": "半导体全产业链",
+    "沪深300": "A股大盘蓝筹",
+    "中证500": "A股中盘",
+    "中证1000": "A股小盘",
+    "科创50": "科创板头部",
+    "创业板指": "创业板龙头",
+    "中证红利": "高股息蓝筹",
+    "红利": "高股息蓝筹",
+    "有色金属": "铜铝稀土等资源品",
+    "新能源": "光伏锂电储能",
+    "医药": "医药生物",
+    "证券": "券商",
+    "银行": "银行",
+}
+
+
+def _index_role(index_name: str) -> str:
+    for key, role in _INDEX_ROLE.items():
+        if key in (index_name or ""):
+            return role
+    return ""
+
+
+def _concentration_line(pcts: list) -> Tuple[str, str]:
+    """前几大持仓的集中度 —— 回答「这 ETF 的涨跌由谁决定」。"""
+    vals = [p for p in pcts if p]
+    if not vals:
+        return "", ""
+    total = sum(vals)
+    if total >= 50:
+        verdict = "高度集中，涨跌基本由这几只决定"
+    elif total >= 30:
+        verdict = "龙头集中，跟着这几只大票走"
+    elif total >= 15:
+        verdict = "适度分散，单只票影响有限"
+    else:
+        verdict = "高度分散，接近全市场均衡配置"
+    return f"{total:.1f}%", verdict
+
+
 def fetch_track_index(code: str) -> Optional[Dict[str, str]]:
     """取 ETF 跟踪的指数名称与代码。抓不到返回 None。"""
     url = ("https://fundmobapi.eastmoney.com/FundMNewApi/FundMNNBasicInformation"
@@ -213,8 +260,13 @@ def fetch_eastmoney_news(keyword: str, days: int = 7, limit: int = 3) -> List[st
         title = str(it.get("title") or "").strip().replace("\n", " ")
         if not title:
             continue
-        # 标题必须真的提到这个主题，否则就是全文碰巧命中
-        if kw not in title and not any(sh in title for sh in shorts):
+        # 标题必须真的提到这个主题，否则就是全文碰巧命中。
+        # 还要求关键词出现在标题前半段 —— 2026-11-25 搜"半导体"捞到
+        # 「通策医疗4.2亿转让股权…半导体厂商宏旺微」这种，关键词在尾句，主题其实不是半导体。
+        hit_pos = title.find(kw)
+        if hit_pos < 0:
+            hit_pos = min([title.find(sh) for sh in shorts if sh in title] or [-1])
+        if hit_pos < 0 or hit_pos > len(title) * 0.6:
             continue
         if any(j in title for j in _JUNK_TITLE):
             continue
@@ -287,35 +339,49 @@ def build_etf_thesis(name: str, code: str, pct_chg: Optional[float] = None,
     pct_chg：当日涨跌幅。用来防「新闻与盘面背离」——搜到的常是几天前的旧闻，
     标题喊利好、股价却在跌，这时候给方向就是误导，不如不说。
     """
-    result: Dict[str, Any] = {"holdings_line": "", "news_line": "",
-                              "thesis_line": "", "position": ""}
+    result: Dict[str, Any] = {"holdings_line": "", "holdings_detail": "",
+                              "news_line": "", "thesis_line": "", "position": ""}
 
-    # ---- 第一层：跟踪指数 + 持仓
+    # ---- 第一层：是什么 + 在行业什么位置
     index = fetch_track_index(code)
-    if index:
-        index_txt = f"跟踪{index['name']}"
-    elif "主动" in (name or ""):
-        # 主动 ETF 没有跟踪标的，说明白比留空好
-        index_txt = "主动管理，不跟踪指数"
+    index_name = index["name"] if index else ""
+    role = _index_role(index_name)
+
+    is_active = "主动" in (name or "")
+    if is_active:
+        what = "主动管理，不押单一行业"
+    elif index_name:
+        what = role or index_name
     else:
-        index_txt = ""
+        what = ""
+
     hold = fetch_holdings(code)
     if hold:
-        parts = [f"{n} {p}%" if p else n for n, p in hold["items"]]
+        items = hold["items"]
+        pcts = [p for _, p in items]
+        total_txt, verdict = _concentration_line([float(p) for p in pcts if p])
+        names = "、".join([n for n, _ in items[:3]])
+        head = f"{what}｜" if what else ""
+        conc = f"前五合计 {total_txt}，{verdict}" if total_txt else ""
+        result["holdings_line"] = f"{head}{conc}"
         q = f"（{hold['quarter']}）" if hold.get("quarter") else ""
-        head = f"{index_txt}　" if index_txt else ""
-        result["holdings_line"] = f"{head}前五 {'、'.join(parts)}{q}"
-    elif index_txt:
-        # 新基金季报还没出，如实说「看不到持仓」，但把跟踪标的告诉用户
-        result["holdings_line"] = f"{index_txt}（新基金，季报还没披露具体持仓）"
+        result["holdings_detail"] = "、".join(
+            [f"{n} {p}%" if p else n for n, p in items]
+        ) + q
+        result["position"] = ("前三是 " + names) if names else ""
+    elif what:
+        result["holdings_line"] = f"{what}（新基金，季报还没披露具体持仓）"
+        result["holdings_detail"] = ""
     else:
         result["holdings_line"] = ""
+        result["holdings_detail"] = ""
 
     # ---- 第二层：新闻
     position = classify_position(name)
     result["position"] = _POSITION_LABEL.get(position, "")
     query = query_hint or query_of(name)
-    titles = fetch_eastmoney_news(query)
+    # 主动管理型 ETF 没有固定行业，搜名称只会捞到同门其他产品，干脆不搜
+    titles = [] if is_active else fetch_eastmoney_news(query)
     if titles:
         result["news_line"] = "；".join(titles[:2])
 

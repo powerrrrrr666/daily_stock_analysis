@@ -241,6 +241,15 @@ def _forecast_one(price: float, market: Dict[str, Optional[float]], digits: int 
     else:
         range_low, range_high = support, resistance
 
+    if not range_low and not range_high:
+        # 新基金常常均线都没走够 5 天，硬凑区间出来只会是「—~—」
+        return {
+            "bias": f"{emoji} {bias}", "score": round(score, 1),
+            "range_low": None, "range_high": None,
+            "note": "均线数据不足，暂时给不出有效区间，先看盘面怎么走",
+            "basis": " ｜ ".join(basis[:4]),
+        }
+
     lo = f"{range_low:.{d}f}" if range_low else "—"
     hi = f"{range_high:.{d}f}" if range_high else "—"
 
@@ -583,6 +592,8 @@ def build_next_action(add_state: str, price: Optional[float],
     个股与 ETF 共用同一套口径，避免两边给出互相矛盾的结论。
     """
     opp = opp or {}
+    if not support:
+        return "均线数据不足，暂给不出减仓位——先等价格走稳再谈"
     sup = _fmt(support, digits)
     ma5s = _fmt(ma5, digits)
 
